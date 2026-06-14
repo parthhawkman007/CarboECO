@@ -1,0 +1,53 @@
+# Google Cloud Run Deployment Configuration manifest
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: carboeco-backend
+  namespace: default
+  labels:
+    cloud.googleapis.com/location: asia-south1
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/ecopilot-ai-platform-98/backend:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          env:
+            - name: ENV
+              value: "production"
+            - name: DATABASE_URL
+              value: "postgresql://postgres:db-password-secret-ref@/carboeco?host=/cloudsql/ecopilot-ai-platform-98:asia-south1:carboeco-sql"
+            - name: REDIS_URL
+              value: "redis://memorystore-redis-ip:6379/0"
+            - name: SECRET_KEY
+              value: "your-production-secret-key-loaded-from-secret-manager"
+            - name: GEMINI_API_KEY
+              value: "YOUR_GEMINI_API_KEY"
+
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: carboeco-frontend
+  namespace: default
+  labels:
+    cloud.googleapis.com/location: asia-south1
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/ecopilot-ai-platform-98/frontend:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "https://backend-service-url.run.app"
