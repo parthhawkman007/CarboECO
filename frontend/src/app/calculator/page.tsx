@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -144,7 +144,10 @@ export default function Calculator() {
     try {
       const res = await fetch(`${getApiUrl()}/api/carbon/logs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
 
@@ -266,7 +269,10 @@ export default function Calculator() {
     try {
       const res = await fetch(`${getApiUrl()}/api/ai/scan`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ image_base64: imagePreview })
       });
 
@@ -300,7 +306,10 @@ export default function Calculator() {
     try {
       const res = await fetch(`${getApiUrl()}/api/carbon/logs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
 
@@ -694,11 +703,12 @@ export default function Calculator() {
 
           {/* Upload Drop Zone */}
           {!imagePreview ? (
-            <label className="flex flex-col items-center justify-center py-12 px-6 border-2 border-dashed border-brand-borderDark/60 hover:border-purple-500/50 rounded-3xl bg-brand-cardDark/30 cursor-pointer transition-colors group">
+            <label htmlFor="image-upload-input" className="flex flex-col items-center justify-center py-12 px-6 border-2 border-dashed border-brand-borderDark/60 hover:border-purple-500/50 rounded-3xl bg-brand-cardDark/30 cursor-pointer transition-colors group">
               <Upload className="h-10 w-10 text-gray-400 group-hover:text-purple-400 transition-colors mb-3" />
               <span className="text-xs font-bold text-gray-300">Select receipt, meal, or bill image</span>
               <span className="text-[10px] text-gray-500 mt-1">Supports PNG, JPG, or JPEG up to 10MB</span>
               <input
+                id="image-upload-input"
                 type="file"
                 accept="image/*"
                 onChange={handleFileChange}

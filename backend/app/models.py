@@ -7,8 +7,8 @@ from app.database import Base
 class GroupMember(Base):
     __tablename__ = "group_members"
     id = Column(Integer, primary_key=True, index=True)
-    group_id = Column(Integer, ForeignKey("eco_groups.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    group_id = Column(Integer, ForeignKey("eco_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="group_memberships")
@@ -93,8 +93,8 @@ class Achievement(Base):
 class UserAchievement(Base):
     __tablename__ = "user_achievements"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    achievement_id = Column(Integer, ForeignKey("achievements.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    achievement_id = Column(Integer, ForeignKey("achievements.id", ondelete="CASCADE"), nullable=False, index=True)
     unlocked_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="achievements")
@@ -138,8 +138,8 @@ class LearningLesson(Base):
 class UserLessonProgress(Base):
     __tablename__ = "user_lessons_progress"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    lesson_id = Column(Integer, ForeignKey("learning_lessons.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    lesson_id = Column(Integer, ForeignKey("learning_lessons.id", ondelete="CASCADE"), nullable=False, index=True)
     completed = Column(Boolean, default=False, nullable=False)
     completed_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -148,7 +148,7 @@ class UserLessonProgress(Base):
 class SimulationRun(Base):
     __tablename__ = "simulation_runs"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     inputs_json = Column(JSON, nullable=False)  # inputs for simulation
     co2_saved = Column(Float, nullable=False)  # kg CO2e saved
@@ -169,8 +169,8 @@ class OffsetProject(Base):
 class UserOffset(Base):
     __tablename__ = "user_offsets"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    project_id = Column(Integer, ForeignKey("offset_projects.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("offset_projects.id", ondelete="CASCADE"), nullable=False, index=True)
     amount_bought = Column(Float, nullable=False)  # USD spent
     cost_paid = Column(Float, nullable=False)  # USD
     co2_offsetted = Column(Float, nullable=False)  # kg CO2 offsetted

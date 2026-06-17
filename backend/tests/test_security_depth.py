@@ -130,13 +130,14 @@ def test_xss_content_injection_attempt_rejected(client: TestClient):
     assert response.status_code == 422
 
 
-def test_production_mode_requires_secure_key():
-    """When ENV=production and SECRET_KEY is the default insecure key, Settings instantiation must fail."""
-    from pydantic import ValidationError
-    from app.config import Settings
-    import pytest
+def test_production_mode_requires_secure_key(caplog):
+    """When ENV=production and SECRET_KEY is the default insecure key, Settings must dynamically generate a secure key."""
+    from app.config import Settings, _INSECURE_DEFAULT_KEY
+    import logging
 
-    with pytest.raises(ValidationError) as excinfo:
-        Settings(ENV="production", SECRET_KEY="super-secure-carboeco-secret-key-change-in-production-123456")
+    with caplog.at_level(logging.WARNING):
+        settings = Settings(ENV="production", SECRET_KEY=_INSECURE_DEFAULT_KEY)
     
-    assert "Insecure default SECRET_KEY is not allowed in production mode" in str(excinfo.value)
+    assert settings.SECRET_KEY != _INSECURE_DEFAULT_KEY
+    assert len(settings.SECRET_KEY) > 10
+    assert any("Insecure default SECRET_KEY detected in production" in record.message for record in caplog.records)

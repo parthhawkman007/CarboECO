@@ -14,3 +14,13 @@ export const getWsUrl = (): string => {
   const apiUrl = getApiUrl();
   return apiUrl.replace(/^http/, "ws");
 };
+
+export const getAuthHeaders = (): Record<string, string> => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("carboeco_access_token");
+    if (token) {
+      return { "Authorization": `Bearer ${token}` };
+    }
+  }
+  return {};
+};

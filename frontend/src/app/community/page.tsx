@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -27,7 +27,9 @@ export default function Community() {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/community/groups`);
+        const res = await fetch(`${getApiUrl()}/api/community/groups`, {
+          headers: getAuthHeaders()
+        });
         if (res.ok) {
           const data: EcoGroup[] = await res.json();
           setGroups(data);
@@ -51,7 +53,10 @@ export default function Community() {
     try {
       const res = await fetch(`${getApiUrl()}/api/community/groups`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
 
@@ -99,7 +104,10 @@ export default function Community() {
     const groupName = group ? group.name : "Eco Collective";
 
     try {
-      await fetch(`${getApiUrl()}/api/community/groups/${groupId}/join`, { method: "POST" });
+      await fetch(`${getApiUrl()}/api/community/groups/${groupId}/join`, { 
+        method: "POST",
+        headers: getAuthHeaders()
+      });
       sendMilestone(`joined the community group: "${groupName}"`, 30);
     } catch (err) {
       console.error(err);

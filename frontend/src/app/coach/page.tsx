@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect, useRef } from "react";
@@ -85,7 +85,9 @@ export default function Coach() {
   useEffect(() => {
     const fetchChallenges = async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/ai/coach/challenges`);
+        const res = await fetch(`${getApiUrl()}/api/ai/coach/challenges`, {
+          headers: getAuthHeaders()
+        });
         if (res.ok) {
           const data: Challenge[] = await res.json();
           setChallenges(data);
@@ -131,7 +133,10 @@ export default function Coach() {
     try {
       const res = await fetch(`${getApiUrl()}/api/ai/coach/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ message: textToSend })
       });
 
@@ -165,7 +170,10 @@ export default function Coach() {
   const handleGenerateRoadmap = async () => {
     setLoadingRoadmap(true);
     try {
-      const res = await fetch(`${getApiUrl()}/api/ai/copilot/roadmap`, { method: "POST" });
+      const res = await fetch(`${getApiUrl()}/api/ai/copilot/roadmap`, { 
+        method: "POST",
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data: Roadmap = await res.json();
         setRoadmap(data);

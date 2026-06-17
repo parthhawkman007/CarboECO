@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -103,14 +103,20 @@ export default function Gamification() {
   useEffect(() => {
     const fetchGamificationData = async () => {
       try {
-        const lRes = await fetch(`${getApiUrl()}/api/gamification/leaderboard`);
+        const lRes = await fetch(`${getApiUrl()}/api/gamification/leaderboard`, {
+          headers: getAuthHeaders()
+        });
         if (lRes.ok) {
           const lData: LeaderboardResponse = await lRes.json();
           setLeaderboard(lData);
         }
         
-        const aRes = await fetch(`${getApiUrl()}/api/gamification/achievements`);
-        const myRes = await fetch(`${getApiUrl()}/api/gamification/my-achievements`);
+        const aRes = await fetch(`${getApiUrl()}/api/gamification/achievements`, {
+          headers: getAuthHeaders()
+        });
+        const myRes = await fetch(`${getApiUrl()}/api/gamification/my-achievements`, {
+          headers: getAuthHeaders()
+        });
         
         if (aRes.ok && myRes.ok) {
           const allAchs = await aRes.json();

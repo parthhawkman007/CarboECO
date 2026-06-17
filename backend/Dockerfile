@@ -20,10 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /root/.local /usr/local
 COPY . .
 
-ENV PATH=/root/.local/bin:$PATH
+RUN useradd -u 1000 -m carboeco && chown -R carboeco:carboeco /app
+USER carboeco
+
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000

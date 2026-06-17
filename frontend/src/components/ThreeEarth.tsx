@@ -216,13 +216,35 @@ export default function ThreeEarth() {
     setIsDragging(false);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowLeft") {
+      rotation.current.y -= 0.1;
+      velocity.current.y = -0.01;
+    } else if (e.key === "ArrowRight") {
+      rotation.current.y += 0.1;
+      velocity.current.y = 0.01;
+    } else if (e.key === "ArrowUp") {
+      rotation.current.x -= 0.1;
+      rotation.current.x = Math.max(-Math.PI / 2 + 0.1, rotation.current.x);
+      velocity.current.x = -0.01;
+    } else if (e.key === "ArrowDown") {
+      rotation.current.x += 0.1;
+      rotation.current.x = Math.min(Math.PI / 2 - 0.1, rotation.current.x);
+      velocity.current.x = 0.01;
+    }
+  };
+
   return (
     <div 
-      className="h-[380px] w-full max-w-[380px] mx-auto cursor-grab active:cursor-grabbing relative flex items-center justify-center select-none"
+      className="h-[380px] w-full max-w-[380px] mx-auto cursor-grab active:cursor-grabbing relative flex items-center justify-center select-none focus-visible:ring-2 focus-visible:ring-brand-emerald focus-visible:outline-none rounded-full"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      tabIndex={0}
+      role="region"
+      aria-label="Interactive 3D Digital Twin Earth Globe showing carbon particle orbit layers. Use arrow keys to rotate."
+      onKeyDown={handleKeyDown}
     >
       <div className="absolute inset-0 bg-brand-emerald/5 rounded-full blur-[80px] pointer-events-none -z-10" />
       <canvas 
@@ -231,7 +253,7 @@ export default function ThreeEarth() {
         aria-label="Interactive 3D Digital Twin Earth Globe showing carbon particle orbit layers."
       />
       <div className="absolute bottom-4 text-[9px] text-gray-400/80 uppercase font-mono tracking-widest font-bold pointer-events-none">
-        Drag Earth to Rotate
+        Drag Earth or use Arrow Keys to Rotate
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cardVariants, listContainerVariants, easeTokens } from "@/utils/motion";
 import { motion } from "framer-motion";
+import { getApiUrl, getAuthHeaders } from "@/utils/api";
 
 // Dynamically import Recharts to optimize FCP
 const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer as any), { ssr: false }) as any;
@@ -47,6 +48,33 @@ export default function Dashboard() {
   const profile = useEcoStore((state) => state.profile);
   const logs = useEcoStore((state) => state.logs);
   const avatarRank = useEcoStore((state) => state.avatarRank);
+  const setProfile = useEcoStore((state) => state.setProfile);
+  const setLogs = useEcoStore((state) => state.setLogs);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const headers = getAuthHeaders();
+        // Fetch user profile
+        const profileRes = await fetch(`${getApiUrl()}/api/auth/me`, { headers });
+        if (profileRes.ok) {
+          const userData = await profileRes.json();
+          if (userData.profile) {
+            setProfile(userData.profile);
+          }
+        }
+        // Fetch user carbon logs
+        const logsRes = await fetch(`${getApiUrl()}/api/carbon/logs?limit=50`, { headers });
+        if (logsRes.ok) {
+          const logsData = await logsRes.json();
+          setLogs(logsData);
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard data from backend.", err);
+      }
+    };
+    fetchUserData();
+  }, [setProfile, setLogs]);
 
   // Reactive calculations
   const totalCo2 = logs.reduce((sum, item) => sum + item.co2_equivalent, 0);

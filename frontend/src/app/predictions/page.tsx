@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -122,6 +122,7 @@ export default function Predictions() {
   const [selectedTimeline, setSelectedTimeline] = useState("today");
   const [forecast, setForecast] = useState<ForecastData>(MOCK_FORECAST);
   const [risk, setRisk] = useState<RiskData>(MOCK_RISK);
+  const [realTwin, setRealTwin] = useState<any>(null);
   
   // Controls for Interactive Garden Simulation (grows dynamically or manually overridden)
   const [simTrees, setSimTrees] = useState(2);
@@ -137,18 +138,29 @@ export default function Predictions() {
   useEffect(() => {
     const fetchAIProjections = async () => {
       try {
-        const fRes = await fetch(`${getApiUrl()}/api/ai/predict/forecast`);
+        const headers = getAuthHeaders();
+        const fRes = await fetch(`${getApiUrl()}/api/ai/predict/forecast`, { headers });
         if (fRes.ok) {
           const fData = await fRes.json();
           setForecast(fData);
         }
-        const rRes = await fetch(`${getApiUrl()}/api/ai/predict/risk`);
+        const rRes = await fetch(`${getApiUrl()}/api/ai/predict/risk`, { headers });
         if (rRes.ok) {
           const rData = await rRes.json();
           setRisk(rData);
         }
+        const tRes = await fetch(`${getApiUrl()}/api/ai/digital-twin`, { headers });
+        if (tRes.ok) {
+          const tData = await tRes.json();
+          setRealTwin(tData);
+          if (selectedTimeline === "today") {
+            setSimTrees(tData.tree_growth_stage);
+            setSimReduction(Math.round(tData.energy_efficiency_score));
+            setMissedGoals(tData.energy_efficiency_score < 50.0);
+          }
+        }
       } catch (err) {
-        console.log("Using localized AI prediction nodes.");
+        console.log("Using localized AI prediction nodes.", err);
       } finally {
         setLoading(false);
       }
@@ -158,14 +170,26 @@ export default function Predictions() {
 
   // Update Garden sliders when selected timeline changes to simulate dynamic evolution
   useEffect(() => {
-    const preset = TIMELINE_STEPS.find(t => t.id === selectedTimeline);
-    if (preset) {
-      setSimTrees(preset.trees);
-      setSimStreak(preset.streak);
-      setSimReduction(preset.reduction);
-      setSimCommunity(preset.milestones);
+    if (selectedTimeline === "today" && realTwin) {
+      setSimTrees(realTwin.tree_growth_stage);
+      setSimReduction(Math.round(realTwin.energy_efficiency_score));
+      setMissedGoals(realTwin.energy_efficiency_score < 50.0);
+      const preset = TIMELINE_STEPS.find(t => t.id === "today");
+      if (preset) {
+        setSimStreak(preset.streak);
+        setSimCommunity(preset.milestones);
+      }
+    } else {
+      const preset = TIMELINE_STEPS.find(t => t.id === selectedTimeline);
+      if (preset) {
+        setSimTrees(preset.trees);
+        setSimStreak(preset.streak);
+        setSimReduction(preset.reduction);
+        setSimCommunity(preset.milestones);
+        setMissedGoals(preset.reduction < 15);
+      }
     }
-  }, [selectedTimeline]);
+  }, [selectedTimeline, realTwin]);
 
   const activeStep = TIMELINE_STEPS.find(t => t.id === selectedTimeline) || TIMELINE_STEPS[0];
 

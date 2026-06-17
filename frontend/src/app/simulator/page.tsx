@@ -1,8 +1,8 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BatteryCharging, Sun, Flame, Plane, Landmark, Trees, MapPin, Navigation, Car, Train, Bike } from "lucide-react";
 import { SimulationRun } from "@/types";
 
@@ -36,6 +36,23 @@ export default function Simulator() {
 
   const [history, setHistory] = useState<SimulationRun[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/simulator/history`, {
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setHistory(data);
+        }
+      } catch (err) {
+        console.error("Failed to load simulation history.", err);
+      }
+    };
+    fetchHistory();
+  }, []);
 
   // Constants matching config EFs
   const EF_CAR_PETROL = 0.18;
@@ -127,7 +144,10 @@ export default function Simulator() {
     try {
       const res = await fetch(`${getApiUrl()}/api/simulator/run`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
       if (res.ok) {

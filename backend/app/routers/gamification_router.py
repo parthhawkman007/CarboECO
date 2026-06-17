@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models import User, UserProfile, Achievement, UserAchievement
 from app.schemas import LeaderboardResponse, LeaderboardUser, AchievementResponse, UserAchievementResponse
 from app.auth.auth import get_current_user
+from app.services.cache import CacheService
 import logging
 
 logger = logging.getLogger("carboeco")
@@ -16,6 +17,12 @@ def get_leaderboard(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Try fetching from cache first
+    cache_key = f"leaderboard:user:{current_user.id}"
+    cached_res = CacheService.get(cache_key)
+    if cached_res:
+        return LeaderboardResponse(**cached_res)
+
     # Fetch profiles sorted by XP
     profiles = db.query(UserProfile).order_by(desc(UserProfile.xp)).limit(10).all()
     
@@ -44,10 +51,15 @@ def get_leaderboard(
             higher_xp_count = db.query(UserProfile).filter(UserProfile.xp > user_profile.xp).count()
             user_rank = higher_xp_count + 1
 
-    return LeaderboardResponse(
+    response_data = LeaderboardResponse(
         leaderboard=leaderboard_list,
         user_rank=user_rank
     )
+    
+    # Cache response
+    CacheService.set(cache_key, response_data.model_dump(), expire=300)
+    
+    return response_data
 
 @router.get("/achievements", response_model=List[AchievementResponse])
 def list_achievements(

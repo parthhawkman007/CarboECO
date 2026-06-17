@@ -41,7 +41,9 @@ export interface EcoState {
   updateProfile: (updates: Partial<UserProfile>) => void;
   
   addLog: (log: CarbonLog) => void;
+  setLogs: (logs: CarbonLog[]) => void;
   setPendingLogsCount: (count: number) => void;
+  setProfile: (profile: UserProfile) => void;
   
   addCopilotMessage: (text: string, sender: "user" | "copilot") => void;
   setCopilotTyping: (typing: boolean) => void;
@@ -203,7 +205,14 @@ export const useEcoStore = create<EcoState>((set) => ({
     logs: [log, ...state.logs]
   })),
 
+  setLogs: (logs: CarbonLog[]) => set({ logs }),
+
   setPendingLogsCount: (count: number) => set({ pendingLogsCount: count }),
+
+  setProfile: (profile: UserProfile) => set({
+    profile,
+    avatarRank: getAvatarRank(profile.level)
+  }),
 
   addCopilotMessage: (text: string, sender: "user" | "copilot") => set((state) => ({
     copilotMessages: [

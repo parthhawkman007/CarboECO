@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models import User, EcoGroup, GroupMember, UserProfile
 from app.schemas import EcoGroupCreate, EcoGroupResponse
 from app.auth.auth import get_current_user
+from app.services.cache import CacheService
 import logging
 
 logger = logging.getLogger("carboeco")
@@ -54,6 +55,7 @@ def create_group(
     try:
         db.commit()
         db.refresh(group)
+        CacheService.invalidate_pattern("leaderboard:*")
     except Exception as e:
         db.rollback()
         logger.error(f"Error creating community group: {e}")
@@ -97,6 +99,7 @@ def join_group(
 
     try:
         db.commit()
+        CacheService.invalidate_pattern("leaderboard:*")
     except Exception as e:
         db.rollback()
         logger.error(f"Error joining community group: {e}")

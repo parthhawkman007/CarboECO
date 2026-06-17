@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models import User, OffsetProject, UserOffset, UserProfile
 from app.schemas import OffsetProjectResponse, OffsetPurchaseRequest, OffsetPurchaseResponse
 from app.auth.auth import get_current_user
+from app.services.cache import CacheService
 import logging
 
 logger = logging.getLogger("carboeco")
@@ -61,6 +62,7 @@ def purchase_offset(
     try:
         db.commit()
         db.refresh(offset)
+        CacheService.invalidate_pattern("leaderboard:*")
     except Exception as e:
         db.rollback()
         logger.error(f"Error buying carbon offsets: {e}")

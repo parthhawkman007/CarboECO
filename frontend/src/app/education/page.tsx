@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -76,7 +76,9 @@ export default function Education() {
   useEffect(() => {
     const fetchPaths = async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/education/paths`);
+        const res = await fetch(`${getApiUrl()}/api/education/paths`, {
+          headers: getAuthHeaders()
+        });
         if (res.ok) {
           const data: LearningPath[] = await res.json();
           setPaths(data);
@@ -112,7 +114,10 @@ export default function Education() {
     try {
       const res = await fetch(`${getApiUrl()}/api/education/lessons/${selectedLesson.id}/quiz`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ answer: selectedAnswer })
       });
 

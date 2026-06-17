@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useEcoStore } from "@/store/useEcoStore";
 import { ShieldCheck, Mail, Lock, ArrowRight, Sparkles, AlertCircle, Fingerprint, RefreshCw } from "lucide-react";
 import { easeTokens, microVariants } from "@/utils/motion";
+import { getApiUrl } from "@/utils/api";
 
 export default function AuthPage() {
   const [view, setView] = useState<"login" | "register" | "forgot" | "mfa">("login");
@@ -45,7 +46,7 @@ export default function AuthPage() {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!email.trim() || !password.trim()) {
@@ -53,14 +54,34 @@ export default function AuthPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const params = new URLSearchParams();
+      params.append("username", email);
+      params.append("password", password);
+
+      const res = await fetch(`${getApiUrl()}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Invalid email or password.");
+      }
+
+      const data = await res.json();
+      localStorage.setItem("carboeco_access_token", data.access_token);
       loginStore(email);
-      setLoading(false);
       setView("mfa");
-    }, 1200);
+    } catch (err: any) {
+      setError(err.message || "An authentication error occurred.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (password !== confirmPassword) {
@@ -72,11 +93,42 @@ export default function AuthPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to create account.");
+      }
+
+      // Automatically log in after registration
+      const params = new URLSearchParams();
+      params.append("username", email);
+      params.append("password", password);
+
+      const loginRes = await fetch(`${getApiUrl()}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params
+      });
+
+      if (!loginRes.ok) {
+        throw new Error("Account created but failed to sign in automatically.");
+      }
+
+      const data = await loginRes.json();
+      localStorage.setItem("carboeco_access_token", data.access_token);
       loginStore(email);
-      setLoading(false);
       setView("mfa");
-    }, 1200);
+    } catch (err: any) {
+      setError(err.message || "An error occurred during registration.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVerifyMfa = (e: React.FormEvent) => {

@@ -1,4 +1,4 @@
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 import { CarbonLog } from "@/types";
 
 const DB_NAME = "CarboECO_Offline";
@@ -93,7 +93,10 @@ export const syncOfflineLogs = async (): Promise<{ successCount: number; failedC
     try {
       const res = await fetch(`${getApiUrl()}/api/carbon/logs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
       if (res.ok) {

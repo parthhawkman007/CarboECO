@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
+from app.services.cache import CacheService
 from datetime import datetime, timedelta, timezone
 import logging
 from app.config import settings
@@ -180,6 +181,7 @@ class CarbonService:
 
         db.commit()
         db.refresh(log)
+        CacheService.invalidate_pattern("leaderboard:*")
         return log
 
     @staticmethod
@@ -283,16 +285,51 @@ class CarbonService:
         if not profile:
             return
 
-        # Get existing achievement codes
+        # 1. Get existing achievement codes
         unlocked = db.query(Achievement.badge_code).join(
             UserAchievement, UserAchievement.achievement_id == Achievement.id
         ).filter(UserAchievement.user_id == user_id).all()
         unlocked_codes = {item[0] for item in unlocked}
 
+        # Determine which achievement codes we potentially need to unlock
+        target_codes = []
+        if "first_log" not in unlocked_codes:
+            target_codes.append("first_log")
+        if "transit_master" not in unlocked_codes:
+            target_codes.append("transit_master")
+        if "green_eater" not in unlocked_codes:
+            target_codes.append("green_eater")
+        if "zero_waste" not in unlocked_codes:
+            target_codes.append("zero_waste")
+        if "streak_3" not in unlocked_codes:
+            target_codes.append("streak_3")
+        if "streak_7" not in unlocked_codes:
+            target_codes.append("streak_7")
+
+        if not target_codes:
+            # All achievements already unlocked!
+            return
+
+        # 2. Batch fetch all potential achievements from database in one query
+        achievements = db.query(Achievement).filter(Achievement.badge_code.in_(target_codes)).all()
+        achievement_map = {ach.badge_code: ach for ach in achievements}
+
+        # 3. Perform a single batch query for carbon log statistics using conditional aggregation
+        counts = db.query(
+            func.count(CarbonLog.id).label("total_count"),
+            func.sum(case(((CarbonLog.category == "transportation") & (CarbonLog.subcategory.in_(["metro", "bus", "train"])), 1), else_=0)).label("transit_count"),
+            func.sum(case(((CarbonLog.category == "food") & (CarbonLog.subcategory.in_(["vegan", "vegetarian"])), 1), else_=0)).label("vegan_count"),
+            func.sum(case(((CarbonLog.category == "waste") & (CarbonLog.subcategory == "recycled"), 1), else_=0)).label("recycling_count")
+        ).filter(CarbonLog.user_id == user_id).first()
+
+        logs_count = counts.total_count or 0
+        transit_count = counts.transit_count or 0
+        vegan_count = counts.vegan_count or 0
+        recycling_count = counts.recycling_count or 0
+
+        # Helper to unlock
         def unlock(code: str):
-            if code in unlocked_codes:
-                return
-            ach = db.query(Achievement).filter(Achievement.badge_code == code).first()
+            ach = achievement_map.get(code)
             if ach:
                 ua = UserAchievement(user_id=user_id, achievement_id=ach.id)
                 db.add(ua)
@@ -300,34 +337,18 @@ class CarbonService:
                 db.flush()
 
         # 1. First Log
-        logs_count = db.query(func.count(CarbonLog.id)).filter(CarbonLog.user_id == user_id).scalar()
         if logs_count >= 1:
             unlock("first_log")
 
         # 2. Transit Master
-        transit_count = db.query(func.count(CarbonLog.id)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.category == "transportation",
-            CarbonLog.subcategory.in_(["metro", "bus", "train"])
-        ).scalar()
         if transit_count >= 5:
             unlock("transit_master")
 
         # 3. Green Eater
-        vegan_count = db.query(func.count(CarbonLog.id)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.category == "food",
-            CarbonLog.subcategory.in_(["vegan", "vegetarian"])
-        ).scalar()
         if vegan_count >= 5:
             unlock("green_eater")
 
         # 4. Zero Waste
-        recycling_count = db.query(func.count(CarbonLog.id)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.category == "waste",
-            CarbonLog.subcategory == "recycled"
-        ).scalar()
         if recycling_count >= 5:
             unlock("zero_waste")
 

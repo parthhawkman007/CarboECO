@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, getWsUrl } from "@/utils/api";
+import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
@@ -22,7 +22,9 @@ export default function Marketplace() {
   useEffect(() => {
     const fetchProjects = async () => {
       try {
-        const res = await fetch(`${getApiUrl()}/api/marketplace/projects`);
+        const res = await fetch(`${getApiUrl()}/api/marketplace/projects`, {
+          headers: getAuthHeaders()
+        });
         if (res.ok) {
           const data: OffsetProject[] = await res.json();
           setProjects(data);
@@ -51,7 +53,10 @@ export default function Marketplace() {
     try {
       const res = await fetch(`${getApiUrl()}/api/marketplace/purchase`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify(payload)
       });
 
