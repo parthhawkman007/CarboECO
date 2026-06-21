@@ -6,11 +6,12 @@ import Link from "next/link";
 import { useEcoStore } from "@/store/useEcoStore";
 import { 
   Zap, Flame, Trash2, Laptop, ShoppingBag, Navigation, Activity, 
-  Sparkles, Award, Target, Brain, ShieldAlert, CheckCircle2 
+  Sparkles, Award, Target, Brain, ShieldAlert, CheckCircle2, TrendingDown, XCircle, AlertTriangle 
 } from "lucide-react";
 import { cardVariants, listContainerVariants, easeTokens } from "@/utils/motion";
 import { motion } from "framer-motion";
 import { getApiUrl, getAuthHeaders } from "@/utils/api";
+import AccessibleChart from "@/components/AccessibleChart";
 
 // Dynamically import Recharts to optimize FCP
 const ResponsiveContainer = dynamic(() => import("recharts").then(m => m.ResponsiveContainer as any), { ssr: false }) as any;
@@ -109,6 +110,31 @@ export default function Dashboard() {
     { id: 3, title: "Utility Standby Optimization", desc: "Disable power standbys on electric appliances. Saves 1.2kg CO2e.", score: "+25 XP" }
   ];
 
+  // Calculate efficiency rating details
+  const ratingInfo = (() => {
+    let rating: "A+" | "A" | "B" | "C" | "F";
+    if (dailyAverage <= profile.carbon_budget * 0.7) {
+      rating = "A+";
+    } else if (dailyAverage <= profile.carbon_budget) {
+      rating = "A";
+    } else if (dailyAverage <= profile.carbon_budget * 1.2) {
+      rating = "B";
+    } else if (dailyAverage <= profile.carbon_budget * 1.5) {
+      rating = "C";
+    } else {
+      rating = "F";
+    }
+
+    const configs = {
+      'A+': { rating, label: 'Excellent', icon: <Sparkles className="w-5 h-5 text-emerald-500" />, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20', description: 'Well below carbon budget' },
+      'A': { rating, label: 'Good', icon: <CheckCircle2 className="w-5 h-5 text-green-500" />, color: 'text-green-500 bg-green-500/10 border-green-500/20', description: 'Within carbon budget' },
+      'B': { rating, label: 'Average', icon: <TrendingDown className="w-5 h-5 text-yellow-500" />, color: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20', description: 'Slightly above budget' },
+      'C': { rating, label: 'Poor', icon: <AlertTriangle className="w-5 h-5 text-orange-500" />, color: 'text-orange-500 bg-orange-500/10 border-orange-500/20', description: 'Significantly above budget' },
+      'F': { rating, label: 'Critical', icon: <XCircle className="w-5 h-5 text-red-500" />, color: 'text-red-500 bg-red-500/10 border-red-500/20', description: 'Far exceeding budget' },
+    };
+    return configs[rating];
+  })();
+
   return (
     <div className="flex flex-col gap-8 py-6 max-w-7xl mx-auto relative">
       
@@ -177,6 +203,21 @@ export default function Dashboard() {
             <span className={`font-black ${budgetPercentage > 85 ? "text-red-500" : "text-brand-emerald"}`}>{budgetPercentage}%</span>
           </div>
 
+          {/* Efficiency Rating display */}
+          <div 
+            className={`p-4 border rounded-2xl flex items-center justify-between gap-3 ${ratingInfo.color}`}
+            aria-label={`Efficiency rating is ${ratingInfo.rating} (${ratingInfo.label}): ${ratingInfo.description}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-black">{ratingInfo.rating}</span>
+              <div className="text-left">
+                <span className="text-xs font-bold block">{ratingInfo.label}</span>
+                <span className="text-[9px] opacity-80 block">{ratingInfo.description}</span>
+              </div>
+            </div>
+            {ratingInfo.icon}
+          </div>
+
           {/* Mini digital twin fallback rotating outline */}
           <div className="flex items-center gap-3 p-3.5 bg-gray-50/50 dark:bg-brand-cardDark/30 border border-gray-100 dark:border-brand-borderDark/20 rounded-2xl">
             <svg className="h-10 w-10 text-brand-sky animate-spin-slow flex-shrink-0" viewBox="0 0 40 40" stroke="currentColor" strokeWidth="1.5" fill="none">
@@ -201,26 +242,24 @@ export default function Dashboard() {
                 <p className="text-[10px] text-gray-400 mt-0.5">Emissions distribution across sectors</p>
               </div>
 
-              <div 
-                className="h-56 w-full relative"
-                role="img"
-                aria-label="Sustainability Radar Chart showing emissions distribution across carbon categories"
-              >
-                <div className="sr-only">
-                  <p>Emissions distribution by sector:</p>
-                  <ul>
-                    {radarData.map((d) => (
-                      <li key={d.subject}>{d.subject}: {d.A} kg CO2e</li>
-                    ))}
-                  </ul>
-                </div>
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart cx="50%" cy="50%" radius="70%" data={radarData}>
-                    <PolarGrid stroke="#26354a" />
-                    <PolarAngleAxis dataKey="subject" stroke="#888888" fontSize={9} />
-                    <Radar name="Carbon Sector" dataKey="A" stroke="#10b981" fill="#10b981" fillOpacity={0.25} />
-                  </RadarChart>
-                </ResponsiveContainer>
+              <div className="h-56 w-full relative">
+                <AccessibleChart
+                  title="Sustainability Radar"
+                  description="Emissions distribution across sectors"
+                  data={radarData}
+                  fields={[
+                    { key: "subject", label: "Sector" },
+                    { key: "A", label: "Emissions (kg CO2e)" }
+                  ]}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" radius="70%" data={radarData}>
+                      <PolarGrid stroke="#26354a" />
+                      <PolarAngleAxis dataKey="subject" stroke="#888888" fontSize={9} />
+                      <Radar name="Carbon Sector" dataKey="A" stroke="#10b981" fill="#10b981" fillOpacity={0.25} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </AccessibleChart>
               </div>
             </div>
 
@@ -258,55 +297,41 @@ export default function Dashboard() {
               <p className="text-[10px] text-gray-400 mt-0.5">Current performance compared to green targets and Business-As-Usual (BAU)</p>
             </div>
 
-            <div 
-              className="h-56 w-full"
-              role="img"
-              aria-label="Goal Trajectory Projections Chart showing current performance against target Green Path and Business-As-Usual projections"
-            >
-              <div className="sr-only">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Timeline</th>
-                      <th scope="col">Current (kg)</th>
-                      <th scope="col">Green Path Target (kg)</th>
-                      <th scope="col">BAU No Action (kg)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trajectoryData.map((d) => (
-                      <tr key={d.name}>
-                        <td>{d.name}</td>
-                        <td>{d.Current !== null && d.Current !== undefined ? `${d.Current} kg` : "N/A"}</td>
-                        <td>{d.Target} kg</td>
-                        <td>{d.BAU} kg</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trajectoryData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorTarget" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorBAU" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="name" stroke="#888888" fontSize={9} />
-                  <YAxis stroke="#888888" fontSize={9} unit="kg" />
-                  <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "none", borderRadius: "12px", fontSize: 10 }} />
-                  <Legend wrapperStyle={{ fontSize: 9 }} />
-                  <Area type="monotone" dataKey="Current" stroke="#0ea5e9" strokeWidth={2} fill="transparent" name="Current Score" />
-                  <Area type="monotone" dataKey="Target" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorTarget)" name="Green Path" />
-                  <Area type="monotone" dataKey="BAU" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#colorBAU)" name="BAU (No Action)" />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="h-56 w-full">
+              <AccessibleChart
+                title="Goal Trajectory Projections"
+                description="Current performance compared to green targets and Business-As-Usual (BAU)"
+                data={trajectoryData}
+                fields={[
+                  { key: "name", label: "Timeline" },
+                  { key: "Current", label: "Current (kg)" },
+                  { key: "Target", label: "Green Path Target (kg)" },
+                  { key: "BAU", label: "BAU No Action (kg)" }
+                ]}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trajectoryData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorTarget" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorBAU" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis dataKey="name" stroke="#888888" fontSize={9} />
+                    <YAxis stroke="#888888" fontSize={9} unit="kg" />
+                    <Tooltip contentStyle={{ backgroundColor: "#0b0f19", border: "none", borderRadius: "12px", fontSize: 10 }} />
+                    <Legend wrapperStyle={{ fontSize: 9 }} />
+                    <Area type="monotone" dataKey="Current" stroke="#0ea5e9" strokeWidth={2} fill="transparent" name="Current Score" />
+                    <Area type="monotone" dataKey="Target" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorTarget)" name="Green Path" />
+                    <Area type="monotone" dataKey="BAU" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#colorBAU)" name="BAU (No Action)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </AccessibleChart>
             </div>
           </div>
 

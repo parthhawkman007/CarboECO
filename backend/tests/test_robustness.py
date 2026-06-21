@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from app.models import User, CarbonLog, OffsetProject, RefreshToken
 from app.config import settings
-from jose import jwt
+import jwt
 from tests.conftest import get_auth_headers
 
 # 1. Input Boundary Violations & Clamping Tests

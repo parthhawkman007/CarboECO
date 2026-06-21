@@ -50,6 +50,7 @@ const MOCK_CHATS = [
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<WebSocketEvent[]>([]);
+  const [announcement, setAnnouncement] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
@@ -62,6 +63,15 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     };
     setEvents((prev) => [newEvent, ...prev].slice(0, 50)); // keep last 50 events
+
+    // Set screen-reader announcement
+    if (event.type === "milestone") {
+      setAnnouncement(`Community milestone: ${event.user} ${event.milestone}`);
+    } else if (event.type === "system") {
+      setAnnouncement(`System update: ${event.message}`);
+    } else if (event.type === "chat") {
+      setAnnouncement(`Chat from ${event.user}: ${event.message}`);
+    }
   };
 
   const connect = () => {
@@ -190,6 +200,9 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <WebSocketContext.Provider value={{ connected, events, sendChatMessage, sendMilestone }}>
       {children}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
     </WebSocketContext.Provider>
   );
 };

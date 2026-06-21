@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select, func
+from sqlalchemy.orm import selectinload
 from typing import List
 from app.database import get_db
 from app.models import User, UserProfile, Achievement, UserAchievement
@@ -13,43 +14,53 @@ logger = logging.getLogger("carboeco")
 router = APIRouter(prefix="/gamification", tags=["Gamification System"])
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)
-def get_leaderboard(
+async def get_leaderboard(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     # Try fetching from cache first
     cache_key = f"leaderboard:user:{current_user.id}"
-    cached_res = CacheService.get(cache_key)
+    cached_res = await CacheService.get(cache_key)
     if cached_res:
         return LeaderboardResponse(**cached_res)
 
-    # Fetch profiles sorted by XP
-    profiles = db.query(UserProfile).order_by(desc(UserProfile.xp)).limit(10).all()
+    # Use a subquery with SQL RANK() window function
+    rank_subq = select(
+        UserProfile.user_id,
+        UserProfile.xp,
+        UserProfile.level,
+        UserProfile.streak_count,
+        UserProfile.full_name,
+        UserProfile.avatar,
+        func.rank().over(order_by=UserProfile.xp.desc()).label('rank')
+    ).subquery()
+
+    # Fetch top 10 from the ranked subquery
+    top_10_stmt = select(rank_subq).order_by(rank_subq.c.rank.asc()).limit(10)
+    top_10_res = await db.execute(top_10_stmt)
+    top_10_rows = top_10_res.all()
     
     leaderboard_list = []
     user_rank = None
     
-    for index, p in enumerate(profiles):
-        rank = index + 1
-        if p.user_id == current_user.id:
-            user_rank = rank
+    for row in top_10_rows:
+        if row.user_id == current_user.id:
+            user_rank = row.rank
             
         leaderboard_list.append(LeaderboardUser(
-            user_id=p.user_id,
-            full_name=p.full_name,
-            xp=p.xp,
-            level=p.level,
-            streak_count=p.streak_count,
-            avatar=p.avatar,
-            rank=rank
+            user_id=row.user_id,
+            full_name=row.full_name,
+            xp=row.xp,
+            level=row.level,
+            streak_count=row.streak_count,
+            avatar=row.avatar,
+            rank=row.rank
         ))
         
-    # If the user is not in the top 10, calculate their rank manually
     if user_rank is None:
-        user_profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
-        if user_profile:
-            higher_xp_count = db.query(UserProfile).filter(UserProfile.xp > user_profile.xp).count()
-            user_rank = higher_xp_count + 1
+        user_rank_stmt = select(rank_subq.c.rank).where(rank_subq.c.user_id == current_user.id)
+        user_rank_res = await db.execute(user_rank_stmt)
+        user_rank = user_rank_res.scalar_one_or_none()
 
     response_data = LeaderboardResponse(
         leaderboard=leaderboard_list,
@@ -57,21 +68,25 @@ def get_leaderboard(
     )
     
     # Cache response
-    CacheService.set(cache_key, response_data.model_dump(), expire=300)
+    await CacheService.set(cache_key, response_data.model_dump(), expire=300)
     
     return response_data
 
 @router.get("/achievements", response_model=List[AchievementResponse])
-def list_achievements(
-    db: Session = Depends(get_db)
+async def list_achievements(
+    db: AsyncSession = Depends(get_db)
 ):
-    achievements = db.query(Achievement).all()
+    stmt = select(Achievement)
+    res = await db.execute(stmt)
+    achievements = res.scalars().all()
     return achievements
 
 @router.get("/my-achievements", response_model=List[UserAchievementResponse])
-def get_my_achievements(
+async def get_my_achievements(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    my_achs = db.query(UserAchievement).filter(UserAchievement.user_id == current_user.id).all()
+    stmt = select(UserAchievement).options(selectinload(UserAchievement.achievement)).where(UserAchievement.user_id == current_user.id)
+    res = await db.execute(stmt)
+    my_achs = res.scalars().all()
     return my_achs

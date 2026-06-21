@@ -125,9 +125,13 @@ def test_marketplace_purchases(client: TestClient, db_session):
 
 def test_websocket_connection(client: TestClient):
     headers = get_auth_headers(client, "ws_user@carboeco.org")
-    token = headers["Authorization"].split(" ")[1]
+    
+    # Request a WebSocket ticket
+    ticket_res = client.post("/api/auth/ws-ticket", headers=headers)
+    assert ticket_res.status_code == 200
+    ticket = ticket_res.json()["ticket"]
 
-    with client.websocket_connect(f"/ws/community?token={token}") as websocket:
+    with client.websocket_connect(f"/ws/community?ticket={ticket}") as websocket:
         data = websocket.receive_json()
         assert data["type"] == "user_join"
         assert "Ws_user" in data["user"]
@@ -143,40 +147,57 @@ def test_websocket_guest_connection(client: TestClient):
         assert data["type"] == "user_join"
         assert "EcoGuest" in data["user"]
 
-def test_ml_forecasting_pipeline(db_session, client: TestClient):
+def test_ml_forecasting_pipeline(client: TestClient):
     headers = get_auth_headers(client, "ml_tester@carboeco.org")
     
     from app.models import User, CarbonLog
     from app.services.ai_engine import AIEngine
+    from tests.conftest import TestingAsyncSessionLocal
+    from sqlalchemy import select
     import datetime
+    import asyncio
     
-    user = db_session.query(User).filter(User.email == "ml_tester@carboeco.org").first()
-    
-    # 1. Sparse data check
-    res_sparse = AIEngine.forecast_footprint(db_session, user.id)
-    assert len(res_sparse["forecast"]) == 12
-    assert "Using general baseline projections" in res_sparse["explanation"]
+    async def run_test():
+        async with TestingAsyncSessionLocal() as db_session:
+            stmt = select(User).where(User.email == "ml_tester@carboeco.org")
+            res = await db_session.execute(stmt)
+            user = res.scalar_one()
+            
+            # Clean up any leftover model/metadata files for this user
+            import os
+            model_path, metadata_path = AIEngine.get_model_paths(user.id)
+            if os.path.exists(model_path):
+                os.remove(model_path)
+            if os.path.exists(metadata_path):
+                os.remove(metadata_path)
 
-    # 2. Add sufficient training data
-    categories = ["transportation", "energy", "food", "waste", "shopping"]
-    for i in range(5):
-        date_str = (datetime.datetime(2026, 1 + i, 15)).strftime("%Y-%m-%d")
-        log = CarbonLog(
-            user_id=user.id,
-            date=date_str,
-            category=categories[i],
-            subcategory="test_sub",
-            value=100.0,
-            unit="units",
-            co2_equivalent=150.0 + (i * 10),
-            explanation="Test log"
-        )
-        db_session.add(log)
-    db_session.commit()
-
-    # 3. Fit pipeline check
-    res_fit = AIEngine.forecast_footprint(db_session, user.id)
-    assert len(res_fit["forecast"]) == 12
-    assert "model_coefficients" in res_fit
-    assert "month_index" in res_fit["model_coefficients"]
-    assert "temp_proxy" in res_fit["model_coefficients"]
+            # 1. Sparse data check
+            res_sparse = await AIEngine.forecast_footprint(db_session, user.id)
+            assert len(res_sparse["forecast"]) == 12
+            assert "Using general baseline projections" in res_sparse["explanation"]
+        
+            # 2. Add sufficient training data
+            categories = ["transportation", "energy", "food", "waste", "shopping"]
+            for i in range(5):
+                date_str = (datetime.datetime(2026, 1 + i, 15)).strftime("%Y-%m-%d")
+                log = CarbonLog(
+                    user_id=user.id,
+                    date=date_str,
+                    category=categories[i],
+                    subcategory="test_sub",
+                    value=100.0,
+                    unit="units",
+                    co2_equivalent=150.0 + (i * 10),
+                    explanation="Test log"
+                )
+                db_session.add(log)
+            await db_session.commit()
+        
+            # 3. Fit pipeline check
+            res_fit = await AIEngine.forecast_footprint(db_session, user.id)
+            assert len(res_fit["forecast"]) == 12
+            assert "model_coefficients" in res_fit
+            assert "month_index" in res_fit["model_coefficients"]
+            assert "temp_proxy" in res_fit["model_coefficients"]
+            
+    asyncio.run(run_test())

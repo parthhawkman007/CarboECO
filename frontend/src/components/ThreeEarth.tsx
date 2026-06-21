@@ -5,6 +5,7 @@ import React, { useRef, useState, useEffect } from "react";
 export default function ThreeEarth() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const rotation = useRef({ x: 0.3, y: 0.5 });
   const velocity = useRef({ x: 0, y: 0.005 }); // auto rotate
@@ -55,8 +56,8 @@ export default function ThreeEarth() {
       ctx.arc(cx, cy, radius + 45, 0, Math.PI * 2);
       ctx.fill();
 
-      // Auto rotation velocity decay/apply if not dragging
-      if (!isDragging) {
+      // Auto rotation velocity decay/apply if not dragging or paused
+      if (!isDragging && !isPaused) {
         rotation.current.y += velocity.current.y;
         rotation.current.x += velocity.current.x;
         // Dampen velocity
@@ -247,10 +248,20 @@ export default function ThreeEarth() {
       onKeyDown={handleKeyDown}
     >
       <div className="absolute inset-0 bg-brand-emerald/5 rounded-full blur-[80px] pointer-events-none -z-10" />
+      <button
+        onClick={() => setIsPaused(!isPaused)}
+        className="absolute top-4 right-4 bg-gray-100 dark:bg-brand-cardDark hover:bg-gray-200 dark:hover:bg-brand-borderDark text-gray-800 dark:text-gray-200 rounded-xl px-2.5 py-1 text-[10px] font-bold transition-colors border border-gray-200/50 dark:border-brand-borderDark/50 z-10 shadow-sm"
+        aria-label={isPaused ? "Play Earth auto rotation" : "Pause Earth auto rotation"}
+      >
+        {isPaused ? "Play" : "Pause"}
+      </button>
+      <div className="sr-only">
+        This is an interactive 3D digital representation of Earth. It has rotating orbits representing carbon emissions. You can rotate the view using mouse drag or arrow keys.
+      </div>
       <canvas 
         ref={canvasRef} 
         className="h-full w-full block drop-shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-        aria-label="Interactive 3D Digital Twin Earth Globe showing carbon particle orbit layers."
+        aria-hidden="true"
       />
       <div className="absolute bottom-4 text-[9px] text-gray-400/80 uppercase font-mono tracking-widest font-bold pointer-events-none">
         Drag Earth or use Arrow Keys to Rotate

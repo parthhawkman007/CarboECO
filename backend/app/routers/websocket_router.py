@@ -1,18 +1,17 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.database import get_db
-from jose import jwt, JWTError
 from app.config import settings
 from app.models import User, UserProfile
+from app.services.cache import CacheService
 import json
 import logging
 import time
+import asyncio
 
 logger = logging.getLogger("carboeco")
 router = APIRouter()
-
-# Temporary ticket cache mapping: ticket_hex -> (user_id, expires_at)
-ws_tickets: dict[str, tuple[int, float]] = {}
 
 class ConnectionManager:
     def __init__(self):
@@ -50,39 +49,26 @@ def sanitize_ws_text(value: object, max_length: int = 500) -> str:
 @router.websocket("/ws/community")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(None),
     ticket: str = Query(None),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     user = None
-    current_time = time.time()
     
     # 1. Ticket validation (preferred for security)
     if ticket:
-        # Prune expired tickets
-        expired = [t for t, v in ws_tickets.items() if v[1] < current_time]
-        for t in expired:
-            ws_tickets.pop(t, None)
-            
-        if ticket in ws_tickets:
-            uid, exp_at = ws_tickets.pop(ticket)
-            if exp_at >= current_time:
-                user = db.query(User).filter(User.id == uid).first()
-                
-    # 2. Token fallback (backwards compatibility for tests)
-    if not user and token:
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            email: str = payload.get("sub")
-            if email:
-                user = db.query(User).filter(User.email == email).first()
-        except JWTError:
-            pass
+        uid = await CacheService.get(f"ws_ticket:{ticket}")
+        if uid:
+            await CacheService.invalidate(f"ws_ticket:{ticket}")
+            stmt = select(User).where(User.id == int(uid))
+            res = await db.execute(stmt)
+            user = res.scalar_one_or_none()
 
     if not user:
         username = f"EcoGuest_{id(websocket) % 1000}"
     else:
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        stmt = select(UserProfile).where(UserProfile.user_id == user.id)
+        res = await db.execute(stmt)
+        profile = res.scalar_one_or_none()
         username = profile.full_name if (profile and profile.full_name) else user.email.split("@")[0].capitalize()
 
     await manager.connect(websocket)
@@ -96,11 +82,9 @@ async def websocket_endpoint(
         })
 
         while True:
-            # Keep connection alive and listen for client messages
             data = await websocket.receive_text()
             try:
                 message_data = json.loads(data)
-                # Clients can broadcast custom messages, e.g. chat or eco milestones
                 if message_data.get("type") == "chat":
                     message = sanitize_ws_text(message_data.get("message"))
                     if message:

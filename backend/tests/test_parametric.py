@@ -52,8 +52,15 @@ def test_transportation_emission_coefficients(client: TestClient, subcategory: s
     ("gas_heating", 50.0, "kWh", round(50.0 * settings.EF_GAS, 2)),
     ("water_usage", 200.0, "liters", round(200.0 * settings.EF_WATER, 2)),
 ])
-def test_energy_emission_coefficients(client: TestClient, subcategory: str, value: float, unit: str, expected_co2: float):
+def test_energy_emission_coefficients(client: TestClient, db_session, subcategory: str, value: float, unit: str, expected_co2: float):
     headers = get_auth_headers(client, f"energy_{subcategory}@test.org")
+    from app.models import User, UserProfile
+    user = db_session.query(User).filter(User.email == f"energy_{subcategory}@test.org").first()
+    if user:
+        profile = db_session.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if profile:
+            profile.region = "GL"
+            db_session.commit()
     res = client.post(
         "/api/carbon/logs",
         headers=headers,
@@ -243,9 +250,16 @@ def test_simulator_ev_switch_calculation(client: TestClient):
     assert res.json()["co2_saved"] == expected_savings
 
 
-def test_simulator_solar_panels_calculation(client: TestClient):
+def test_simulator_solar_panels_calculation(client: TestClient, db_session):
     """Solar panels should save electricity_factor * kWh annually."""
     headers = get_auth_headers(client, "sim_solar@test.org")
+    from app.models import User, UserProfile
+    user = db_session.query(User).filter(User.email == "sim_solar@test.org").first()
+    if user:
+        profile = db_session.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        if profile:
+            profile.region = "GL"
+            db_session.commit()
     kwh = 4000.0
     expected_savings = round(kwh * settings.EF_ELECTRICITY_GRID, 2)
     res = client.post(

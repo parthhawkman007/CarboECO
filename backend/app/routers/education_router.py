@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List
 from app.database import get_db
 from app.models import User, LearningPath, LearningLesson, UserLessonProgress, UserProfile
@@ -12,29 +14,35 @@ logger = logging.getLogger("carboeco")
 router = APIRouter(prefix="/education", tags=["Education Center"])
 
 @router.get("/paths", response_model=List[LearningPathResponse])
-def get_paths(
+async def get_paths(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    paths = db.query(LearningPath).all()
+    stmt = select(LearningPath).options(selectinload(LearningPath.lessons))
+    res = await db.execute(stmt)
+    paths = res.scalars().all()
     return paths
 
 @router.post("/lessons/{lesson_id}/quiz", response_model=QuizResponse)
-def submit_lesson_quiz(
+async def submit_lesson_quiz(
     lesson_id: int,
     submission: QuizSubmit,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    lesson = db.query(LearningLesson).filter(LearningLesson.id == lesson_id).first()
+    stmt_lesson = select(LearningLesson).where(LearningLesson.id == lesson_id)
+    res_lesson = await db.execute(stmt_lesson)
+    lesson = res_lesson.scalar_one_or_none()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
     # Check if already completed
-    existing_progress = db.query(UserLessonProgress).filter(
+    stmt_prog = select(UserLessonProgress).where(
         UserLessonProgress.user_id == current_user.id,
         UserLessonProgress.lesson_id == lesson_id
-    ).first()
+    )
+    res_prog = await db.execute(stmt_prog)
+    existing_progress = res_prog.scalar_one_or_none()
 
     is_correct = lesson.quiz_answer.strip().lower() == submission.answer.strip().lower()
     
@@ -53,19 +61,21 @@ def submit_lesson_quiz(
             db.add(progress)
             
             # Award XP to profile
-            profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+            stmt_prof = select(UserProfile).where(UserProfile.user_id == current_user.id)
+            res_prof = await db.execute(stmt_prof)
+            profile = res_prof.scalar_one_or_none()
             if profile:
                 profile.xp += xp_earned
                 new_level = 1 + (profile.xp // 500)
                 if new_level > profile.level:
                     profile.level = new_level
-                db.flush()
+                await db.flush()
         
         try:
-            db.commit()
-            CacheService.invalidate_pattern("leaderboard:*")
+            await db.commit()
+            await CacheService.invalidate_pattern("leaderboard:*")
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error completing quiz progress: {e}")
             raise HTTPException(status_code=500, detail="Failed to save completion progress")
             

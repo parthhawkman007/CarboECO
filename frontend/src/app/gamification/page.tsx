@@ -3,7 +3,7 @@ import { getApiUrl, getAuthHeaders } from "@/utils/api";
 
 
 import { useState, useEffect } from "react";
-import { Award, Flame, Trophy, Sparkles, ShieldCheck, Heart, Star, ChevronRight, Lock } from "lucide-react";
+import { Award, Flame, Trophy, Sparkles, ShieldCheck, Heart, Star, ChevronRight, Lock, Share2 } from "lucide-react";
 import { Achievement, LeaderboardResponse } from "@/types";
 import { useEcoStore } from "@/store/useEcoStore";
 import { motion, AnimatePresence } from "framer-motion";
@@ -385,20 +385,44 @@ export default function Gamification() {
                   <div className="text-3xl p-2.5 bg-white dark:bg-brand-cardDark rounded-xl shadow-sm flex-shrink-0">
                     {ach.icon}
                   </div>
-                  <div>
-                    <span className="block font-bold text-sm">{ach.name}</span>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-normal">{ach.description}</p>
-                    <div className="flex items-center gap-1.5 mt-2.5">
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                        ach.unlocked 
-                          ? "bg-brand-emerald/10 text-brand-emerald"
-                          : "bg-gray-200 dark:bg-brand-borderDark text-gray-400"
-                      }`}>
-                        {ach.unlocked ? "Unlocked" : "Locked"}
-                      </span>
-                      <span className="text-[10px] font-semibold text-gray-400">+{ach.xp_reward} XP</span>
+                    <div>
+                      <span className="block font-bold text-sm">{ach.name}</span>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-normal">{ach.description}</p>
+                      <div className="flex items-center justify-between gap-2 mt-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                            ach.unlocked 
+                              ? "bg-brand-emerald/10 text-brand-emerald"
+                              : "bg-gray-200 dark:bg-brand-borderDark text-gray-400"
+                          }`}>
+                            {ach.unlocked ? "Unlocked" : "Locked"}
+                          </span>
+                          <span className="text-[10px] font-semibold text-gray-400">+{ach.xp_reward} XP</span>
+                        </div>
+                        {ach.unlocked && (
+                          <button
+                            onClick={() => {
+                              if (navigator.share) {
+                                navigator.share({
+                                  title: `I earned the "${ach.name}" badge on CarboECO! 🌿`,
+                                  text: `${ach.description} Join me in reducing carbon footprints!`,
+                                  url: window.location.href
+                                });
+                              } else {
+                                navigator.clipboard.writeText(
+                                  `I earned "${ach.name}" on CarboECO! 🌿 ${window.location.href}`
+                                );
+                              }
+                            }}
+                            aria-label={`Share ${ach.name} achievement`}
+                            className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 dark:text-brand-emerald dark:hover:text-emerald-400 transition-colors"
+                          >
+                            <Share2 className="w-3 h-3" />
+                            Share
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
                 </div>
               ))}
             </div>

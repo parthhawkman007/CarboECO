@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { Navigation, Zap, Flame, Trash2, Laptop, ShoppingBag, PlusCircle, CheckCircle, Database, Map, Camera, Upload, ArrowRight, Check, Sparkles } from "lucide-react";
 import { CarbonLog } from "@/types";
 import { queuePendingLog, syncOfflineLogs, getPendingLogs } from "@/utils/offlineSync";
+import { useEcoStore } from "@/store/useEcoStore";
 
 const CATEGORIES = [
   { id: "transportation", label: "Transportation", icon: Navigation, color: "text-blue-500 bg-blue-500/10 border-blue-500/20" },
@@ -57,6 +58,7 @@ const SUBCATEGORIES: Record<string, { label: string; unit: string }[]> = {
 };
 
 export default function Calculator() {
+  const addLog = useEcoStore((state) => state.addLog);
   const [activeCategory, setActiveCategory] = useState("transportation");
   const [subcategory, setSubcategory] = useState("");
   const [value, setValue] = useState("");
@@ -154,6 +156,7 @@ export default function Calculator() {
       if (res.ok) {
         const data: CarbonLog = await res.json();
         setSuccessResult(data);
+        addLog(data);
         setValue("");
       } else {
         await queuePendingLog(payload);
@@ -161,7 +164,7 @@ export default function Calculator() {
         setPendingCount(pending.length);
 
         const simulatedCo2 = simulateOfflineCalculator(activeCategory, subcategory, numericValue);
-        setSuccessResult({
+        const logData: CarbonLog = {
           id: Date.now(),
           user_id: 1,
           co2_equivalent: simulatedCo2,
@@ -173,7 +176,9 @@ export default function Calculator() {
           explanation: `Offline Mode: Log queued locally in IndexedDB. Emissions of ${numericValue} ${payload.unit} of ${subcategory} is estimated at ${simulatedCo2} kg CO2e.`,
           metadata_json: { offline: true },
           created_at: new Date().toISOString()
-        });
+        };
+        setSuccessResult(logData);
+        addLog(logData);
         setValue("");
       }
     } catch (err) {
@@ -182,7 +187,7 @@ export default function Calculator() {
       setPendingCount(pending.length);
 
       const simulatedCo2 = simulateOfflineCalculator(activeCategory, subcategory, numericValue);
-      setSuccessResult({
+      const logData: CarbonLog = {
         id: Date.now(),
         user_id: 1,
         co2_equivalent: simulatedCo2,
@@ -194,7 +199,9 @@ export default function Calculator() {
         explanation: `Offline Mode (Network disconnected): Log queued locally in IndexedDB. Emissions of ${numericValue} ${payload.unit} of ${subcategory} is estimated at ${simulatedCo2} kg CO2e.`,
         metadata_json: { offline: true },
         created_at: new Date().toISOString()
-      });
+      };
+      setSuccessResult(logData);
+      addLog(logData);
       setValue("");
     } finally {
       setLoading(false);
@@ -477,7 +484,7 @@ export default function Calculator() {
                 </h2>
                 
                 {errors && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs" role="alert">
+                  <div id="value-input-error" className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs" role="alert">
                     {errors}
                   </div>
                 )}
@@ -624,6 +631,7 @@ export default function Calculator() {
                       onChange={(e) => setValue(e.target.value)}
                       className="w-full bg-gray-100 dark:bg-brand-cardDark border border-gray-200 dark:border-brand-borderDark rounded-xl p-3 text-sm focus:border-brand-emerald text-gray-800 dark:text-white"
                       required
+                      aria-describedby={errors ? "value-input-error" : undefined}
                     />
                     <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none text-xs text-gray-400 font-bold capitalize">
                       {currentUnit}
@@ -689,7 +697,7 @@ export default function Calculator() {
           </div>
 
           {scanError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs" role="alert">
+            <div id="scan-receipt-error" className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs" role="alert">
               {scanError}
             </div>
           )}
@@ -714,6 +722,7 @@ export default function Calculator() {
                 onChange={handleFileChange}
                 className="hidden"
                 aria-label="Upload activity image"
+                aria-describedby={scanError ? "scan-receipt-error" : undefined}
               />
             </label>
           ) : (

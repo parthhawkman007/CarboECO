@@ -5,7 +5,7 @@ from datetime import datetime
 # Auth & User
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128, description="Password must be at least 8 characters")
+    password: str = Field(..., min_length=8, max_length=72, description="Password must be between 8 and 72 characters")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -279,3 +279,17 @@ class GroupMemberResponse(BaseModel):
     user: Optional[UserResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class TelemetryEvent(BaseModel):
+    id: int
+    user: str
+    action: str
+    co2: str
+
+class GlobalSummary(BaseModel):
+    total_co2: float
+    active_citizens: int
+    trees_equivalent: int
+    energy_saved_kwh: float
+    missions_logged: int
+    recent_events: List[TelemetryEvent]

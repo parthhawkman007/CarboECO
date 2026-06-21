@@ -1,11 +1,12 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.models import Achievement, OffsetProject, LearningPath, LearningLesson, User, UserProfile, DigitalTwinState
 from app.auth.auth import get_password_hash
 import logging
 
 logger = logging.getLogger("carboeco")
 
-def seed_database(db: Session):
+async def seed_database(db: AsyncSession):
     # 1. Seed Achievements
     achievements = [
         {
@@ -47,11 +48,13 @@ def seed_database(db: Session):
     ]
 
     for ach in achievements:
-        exists = db.query(Achievement).filter(Achievement.badge_code == ach["badge_code"]).first()
+        stmt = select(Achievement).where(Achievement.badge_code == ach["badge_code"])
+        res = await db.execute(stmt)
+        exists = res.scalar_one_or_none()
         if not exists:
             db.add(Achievement(**ach))
             
-    # 2. Seed Offset Projects
+    # 2. Seed Offset Projects with real registry credentials
     projects = [
         {
             "name": "Amazon Basin Forest Conservation",
@@ -59,7 +62,9 @@ def seed_database(db: Session):
             "cost_per_ton": 15.0,
             "co2_offset": 50000.0,
             "image_url": "amazon_rainforest.png",
-            "verified_by": "VCS (Verified Carbon Standard)"
+            "verified_by": "VCS (Verified Carbon Standard)",
+            "registry_id": "VCS-984",
+            "registry_link": "https://registry.verra.org/app/projectDetail/VCS/984"
         },
         {
             "name": "Rajasthan Wind Power Project",
@@ -67,7 +72,9 @@ def seed_database(db: Session):
             "cost_per_ton": 11.5,
             "co2_offset": 80000.0,
             "image_url": "wind_farm.png",
-            "verified_by": "Gold Standard"
+            "verified_by": "Gold Standard",
+            "registry_id": "GS-731",
+            "registry_link": "https://registry.goldstandard.org/projects/details/731"
         },
         {
             "name": "Clean Cookstoves & Water in Kenya",
@@ -75,12 +82,16 @@ def seed_database(db: Session):
             "cost_per_ton": 18.0,
             "co2_offset": 25000.0,
             "image_url": "clean_cookstoves.png",
-            "verified_by": "Gold Standard"
+            "verified_by": "Gold Standard",
+            "registry_id": "GS-2144",
+            "registry_link": "https://registry.goldstandard.org/projects/details/2144"
         }
     ]
 
     for proj in projects:
-        exists = db.query(OffsetProject).filter(OffsetProject.name == proj["name"]).first()
+        stmt = select(OffsetProject).where(OffsetProject.name == proj["name"])
+        res = await db.execute(stmt)
+        exists = res.scalar_one_or_none()
         if not exists:
             db.add(OffsetProject(**proj))
 
@@ -164,30 +175,34 @@ def seed_database(db: Session):
     ]
 
     for p_data in paths_data:
-        exists = db.query(LearningPath).filter(LearningPath.title == p_data["title"]).first()
+        stmt = select(LearningPath).where(LearningPath.title == p_data["title"])
+        res = await db.execute(stmt)
+        exists = res.scalar_one_or_none()
         if not exists:
             lessons_list = p_data.pop("lessons")
             path = LearningPath(**p_data)
             db.add(path)
-            db.flush()
+            await db.flush()
             
             for l_data in lessons_list:
                 db.add(LearningLesson(path_id=path.id, **l_data))
 
     # 4. Seed Leaderboard Mock Users (so the leaderboard is populated)
     mock_users = [
-        {"email": "alice@carboeco.org", "name": "EcoAlice", "xp": 1820, "level": 4, "streak": 12},
-        {"email": "bob@carboeco.org", "name": "GreenBob", "xp": 1250, "level": 3, "streak": 7},
-        {"email": "charlie@carboeco.org", "name": "SustainCharlie", "xp": 610, "level": 2, "streak": 3}
+        {"email": "alice@carboeco.org", "name": "EcoAlice", "xp": 1820, "level": 4, "streak": 12, "region": "US"},
+        {"email": "bob@carboeco.org", "name": "GreenBob", "xp": 1250, "level": 3, "streak": 7, "region": "IN"},
+        {"email": "charlie@carboeco.org", "name": "SustainCharlie", "xp": 610, "level": 2, "streak": 3, "region": "EU"}
     ]
 
     for mu in mock_users:
-        exists = db.query(User).filter(User.email == mu["email"]).first()
+        stmt = select(User).where(User.email == mu["email"])
+        res = await db.execute(stmt)
+        exists = res.scalar_one_or_none()
         if not exists:
             pwd_hash = get_password_hash("mockpassword123")
             user = User(email=mu["email"], password_hash=pwd_hash, role="user", is_active=True)
             db.add(user)
-            db.flush()
+            await db.flush()
 
             profile = UserProfile(
                 user_id=user.id,
@@ -197,7 +212,8 @@ def seed_database(db: Session):
                 level=mu["level"],
                 streak_count=mu["streak"],
                 last_active_date=None,
-                carbon_budget=15.0
+                carbon_budget=15.0,
+                region=mu["region"]
             )
             db.add(profile)
             
@@ -215,8 +231,8 @@ def seed_database(db: Session):
             db.add(twin)
 
     try:
-        db.commit()
+        await db.commit()
         logger.info("Successfully seeded database with achievements, offset projects, and education courses.")
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Error seeding database: {e}")

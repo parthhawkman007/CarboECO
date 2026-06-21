@@ -42,7 +42,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/carboeco
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${CARBOECO_SECRET_KEY:-super-secure-carboeco-secret-key-change-in-production-123456}
+      # REQUIRED: Set CARBOECO_SECRET_KEY environment variable before starting in production
+      - SECRET_KEY=${CARBOECO_SECRET_KEY}
       - ENV=production
     ports:
       - "8000:8000"

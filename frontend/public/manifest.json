@@ -1,0 +1,22 @@
+{
+  "name": "CarboECO Sustainability Platform",
+  "short_name": "CarboECO",
+  "description": "AI-powered Carbon Footprint Awareness and Abatement Platform.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#040812",
+  "theme_color": "#10B981",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/color/192/000000/leaf.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://img.icons8.com/color/512/000000/leaf.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

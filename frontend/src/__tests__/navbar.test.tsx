@@ -27,10 +27,15 @@ vi.mock("next/link", () => ({
 }));
 
 import Navbar from "@/components/Navbar";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 describe("Navbar accessibility", () => {
   beforeEach(() => {
-    render(<Navbar />);
+    render(
+      <ThemeProvider>
+        <Navbar />
+      </ThemeProvider>
+    );
   });
 
   it("renders a skip-to-content link before any interactive content", () => {

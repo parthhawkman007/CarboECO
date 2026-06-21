@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Leaf, Menu, X, Award, Flame, User as UserIcon, ChevronDown } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
+import { useEcoStore } from "@/store/useEcoStore";
 
 const PRIMARY_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
@@ -28,12 +29,58 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // Default User Mock values for navigation display
-  const xp = 620;
-  const level = 2;
-  const streak = 3;
+  // Dynamic user profile stats bound to Zustand store
+  const profile = useEcoStore((state) => state.profile);
+  const xp = profile.xp;
+  const level = profile.level;
+  const streak = profile.streak_count;
 
   const isMoreActive = MORE_ITEMS.some(item => pathname === item.href);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Focus trapping logic for WCAG mobile menu compliance
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const menuEl = menuRef.current;
+    if (!menuEl) return;
+
+    // Focus the first link immediately on open
+    const focusable = menuEl.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length > 0) {
+      focusable[0].focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+
+      const elements = menuEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (elements.length === 0) return;
+
+      const firstEl = elements[0];
+      const lastEl = elements[elements.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          lastEl.focus();
+          e.preventDefault();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          firstEl.focus();
+          e.preventDefault();
+        }
+      }
+    };
+
+    menuEl.addEventListener("keydown", handleKeyDown);
+    return () => {
+      menuEl.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileMenuOpen]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-200/50 bg-white/80 backdrop-blur-md dark:border-brand-borderDark/50 dark:bg-brand-darkBg/80 transition-all duration-300">
@@ -168,7 +215,10 @@ export default function Navbar() {
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
-        <div className="lg:hidden fixed inset-x-0 top-16 bottom-0 z-40 bg-white dark:bg-brand-darkBg px-6 py-4 flex flex-col justify-between overflow-y-auto border-t border-gray-100 dark:border-brand-borderDark animate-in fade-in slide-in-from-top-4 duration-200">
+        <div 
+          ref={menuRef}
+          className="lg:hidden fixed inset-x-0 top-16 bottom-0 z-40 bg-white dark:bg-brand-darkBg px-6 py-4 flex flex-col justify-between overflow-y-auto border-t border-gray-100 dark:border-brand-borderDark animate-in fade-in slide-in-from-top-4 duration-200"
+        >
           <nav className="flex flex-col gap-4" aria-label="Mobile Navigation">
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href;
@@ -207,7 +257,7 @@ export default function Navbar() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-emerald py-3 text-center font-semibold text-white hover:bg-brand-forest transition-colors"
             >
               <UserIcon className="h-5 w-5" />
-              Go to Account
+              <span>Go to Account</span>
             </Link>
           </div>
         </div>

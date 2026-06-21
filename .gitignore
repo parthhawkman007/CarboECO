@@ -18,8 +18,9 @@ out/
 frontend-npm-audit-report.json
 coverage/
 
-# Databases / local DBs
+# SQLite development databases
 *.db
+*.sqlite
 *.sqlite3
 
 # Firebase

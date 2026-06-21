@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:  # Allow manual triggers
 
 jobs:
   backend-quality:
@@ -25,13 +26,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
-          pip install ruff pip-audit
+          pip install ruff pip-audit bandit schemathesis hypothesis
 
       - name: Backend lint gate
         run: ruff check backend/app backend/tests
 
       - name: Backend type/import gate
         run: python -m compileall -q backend/app backend/tests
+
+      - name: Backend security SAST gate (Bandit)
+        run: bandit -r backend/app
 
       - name: Backend security audit gate
         run: |
@@ -154,3 +158,62 @@ jobs:
         with:
           name: accessibility-reports
           path: frontend/accessibility-report/
+
+  secret-scanning:
+    name: Secret & Credential Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for gitleaks
+
+      - name: Run Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # Optional for organizations
+
+  load-testing:
+    name: k6 Load & Smoke Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Start Backend Server in Background
+        run: |
+          cd backend
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          echo "Waiting for API to start..."
+          for i in {1..30}; do
+            curl -s http://127.0.0.1:8000/api/docs && exit 0
+            sleep 1
+          done
+          echo "API failed to start in time"
+          exit 1
+        env:
+          DATABASE_URL: sqlite:///carboeco_ci.db
+
+      - name: Set up k6
+        run: |
+          curl https://github.com/grafana/k6/releases/download/v0.51.0/k6-v0.51.0-linux-amd64.tar.gz -L | tar xvz
+          sudo mv k6-v0.51.0-linux-amd64/k6 /usr/local/bin/k6
+
+      - name: Run k6 smoke test
+        run: |
+          k6 run --vus 1 --duration 10s k6/load_test.js
+        env:
+          BASE_URL: http://127.0.0.1:8000

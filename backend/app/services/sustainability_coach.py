@@ -1,12 +1,14 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 import random
+import logging
+import base64
+
 from app.models import CarbonLog, UserProfile, AIRecommendation
 from app.services.ai_engine import AIEngine
+from app.services.carbon_service import CarbonService
 from app.config import settings
-import logging
-
-import base64
 
 try:
     from google import genai
@@ -76,60 +78,87 @@ class SustainabilityCoach:
             "collectively reduce the carbon footprint of data centers."
         ),
         "offset": (
-            "Carbon offsets let you fund projects that reduce green house gases—like reforestation, wind farms, or methane captures—"
+            "Carbon offsets let you fund projects that reduce greenhouse gases—like reforestation, wind farms, or methane captures—"
             "to balance out your own unavoidable emissions. While helpful, offsetting should only be used after you have "
             "maximized your direct emission reductions."
         )
     }
 
     @classmethod
-    def get_coach_response(cls, query: str) -> str:
+    async def get_coach_response(cls, db: AsyncSession, user_id: int, query: str) -> str:
         """
-        Simple keyword-based semantic coach response that falls back to a general green coaching script.
-        If GEMINI_API_KEY is configured, it uses Gemini API to generate personalized sustainability response.
+        Uses Gemini API to generate personalized sustainability response with RAG context
+        comprising user logs history, regional parameters, and risk profiles.
+        Falls back to local QA mapping if the Gemini key is unconfigured.
         """
+        # Fetch user profile and emissions context for RAG prompt personalization
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        res_prof = await db.execute(stmt_prof)
+        profile = res_prof.scalar_one_or_none()
+        budget = profile.carbon_budget if profile else 15.0
+        region = profile.region if profile else "US"
+
+        # Calculate user risk and goal probabilities
+        analysis = await AIEngine.calculate_risk_and_goal_probability(db, user_id)
+        risks = analysis.get("risk_behaviors", [])
+        daily_mean = analysis.get("daily_mean", 0.0)
+
+        rag_context = (
+            f"[User RAG context]\n"
+            f"- User Region: {region}\n"
+            f"- Current Daily Footprint Mean: {daily_mean:.2f} kg CO2e\n"
+            f"- Daily Target Budget: {budget:.2f} kg CO2e\n"
+            f"- Goal Achievement Probability: {analysis.get('goal_probability', 0.5) * 100:.0f}%\n"
+            f"- High Risk Behaviors Detected: {', '.join(risks)}\n"
+        )
+
         if genai and settings.GEMINI_API_KEY:
             try:
                 client = genai.Client(api_key=settings.GEMINI_API_KEY)
+                prompt = (
+                    "You are the CarboECO Sustainability Coach, a senior environmental scientist AI. "
+                    "Provide a warm, encouraging, scientifically accurate response to the user's question, "
+                    "referencing the user's real carbon tracking metrics and risks if relevant.\n\n"
+                    f"{rag_context}\n"
+                    f"User Question: {query}\n"
+                    "Keep your response concise, engaging, and under 150 words."
+                )
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
-                    contents=(
-                        "You are the CarboECO Sustainability Coach, an expert environmental assistant. "
-                        "Answer the user's question with encouraging, actionable, and scientifically accurate sustainability advice. "
-                        "Keep your response concise, engaging, and under 150 words.\n\n"
-                        f"User Question: {query}"
-                    )
+                    contents=prompt
                 )
                 if response and response.text:
                     return response.text.strip()
             except Exception as e:
                 logger.error(f"Error calling Gemini in get_coach_response: {e}")
 
-        # Local fallback logic
+        # Local fallback with RAG personalization enrichment
         q = query.lower()
         for key, response in cls.Q_AND_A_KNOWLEDGE.items():
             if key in q:
                 return response
         
+        risk_str = risks[0] if risks else "Keep tracking your carbon inputs daily."
         return (
-            "That is an excellent question! Reducing carbon footprint involves three main steps: "
-            "1) Measure (which you are doing on CarboECO), 2) Avoid (choosing low-carbon alternatives like metro "
-            "and plant-based food), and 3) Offset (funding verified carbon removal projects). For specific guidance, "
-            "try asking about 'reduce food', 'reduce transport', 'solar panels', or 'digital footprint'!"
+            f"Based on your profile in region {region} (Daily Avg: {daily_mean:.1f} kg CO2e vs Budget: {budget} kg): "
+            f"Your highest priority is to address this risk: '{risk_str}'. "
+            "To reduce your emissions, remember the core sequence: Avoid (e.g. swap private vehicles for public transit), "
+            "Reduce (e.g. choose plant-based meals), and Offset (fund verified offset projects via the Marketplace)."
         )
 
-    @staticmethod
-    def get_weekly_challenges(db: Session, user_id: int) -> list[dict]:
+    @classmethod
+    async def get_weekly_challenges(cls, db: AsyncSession, user_id: int) -> list[dict]:
         """
         Generates weekly eco-challenges tailored to the user's highest emission category.
-        If GEMINI_API_KEY is configured, it uses Gemini API structured output to generate custom challenges.
+        Uses Gemini API structured output if key is configured.
         """
-        # Fetch last 30 days logs to see what category is dominant
         thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        logs = db.query(CarbonLog).filter(
+        stmt = select(CarbonLog).where(
             CarbonLog.user_id == user_id,
             CarbonLog.date >= thirty_days_ago
-        ).all()
+        )
+        res = await db.execute(stmt)
+        logs = res.scalars().all()
 
         highest_cat = "transportation"
         if logs:
@@ -173,7 +202,7 @@ class SustainabilityCoach:
             except Exception as e:
                 logger.error(f"Error calling Gemini in get_weekly_challenges: {e}")
 
-        # Challenges database fallback
+        # Fallback database challenges
         challenges = {
             "transportation": [
                 {"title": "Transit Trial", "description": "Take the metro or bus for 3 commutes instead of driving.", "xp": 80, "co2_saving": 12.5},
@@ -205,34 +234,34 @@ class SustainabilityCoach:
             ]
         }
 
-        # Select challenges. Pick 2 from the highest category and 1 random from other categories.
         selected = list(challenges.get(highest_cat, challenges["transportation"]))[:2]
-        
         other_cats = [c for c in challenges.keys() if c != highest_cat]
         random_cat = random.choice(other_cats)
         selected.append(random.choice(challenges[random_cat]))
-
         return selected
 
-    @staticmethod
-    def generate_roadmap(db: Session, user_id: int) -> dict:
+    @classmethod
+    async def generate_roadmap(cls, db: AsyncSession, user_id: int) -> dict:
         """
-        Creates a custom, multi-step carbon reduction roadmap for the user,
-        calculating projected savings.
-        If GEMINI_API_KEY is configured, it uses Gemini API structured output to generate personalized steps.
+        Creates a custom, multi-step carbon reduction roadmap for the user.
+        Injects real-time risk contexts into the Gemini model.
         """
-        analysis = AIEngine.calculate_risk_and_goal_probability(db, user_id)
+        analysis = await AIEngine.calculate_risk_and_goal_probability(db, user_id)
         risks = analysis.get("risk_behaviors", [])
 
-        # Get user budget & carbon history summary for context
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+        # Get user budget & carbon history
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        res_prof = await db.execute(stmt_prof)
+        profile = res_prof.scalar_one_or_none()
         budget = profile.carbon_budget if profile else 15.0
 
         thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        logs = db.query(CarbonLog).filter(
+        stmt_logs = select(CarbonLog).where(
             CarbonLog.user_id == user_id,
             CarbonLog.date >= thirty_days_ago
-        ).all()
+        )
+        res_logs = await db.execute(stmt_logs)
+        logs = res_logs.scalars().all()
 
         history_summary = ""
         if logs:
@@ -247,7 +276,7 @@ class SustainabilityCoach:
             try:
                 client = genai.Client(api_key=settings.GEMINI_API_KEY)
                 prompt = (
-                    "Generate a custom, multi-step carbon reduction roadmap for a user. "
+                    "Generate a custom, 4-phase carbon reduction roadmap for a user.\n"
                     f"User daily carbon budget: {budget} kg CO2e.\n"
                     f"User recent 30-day carbon emissions summary: {history_summary}.\n"
                     f"Identified high-risk behaviors: {', '.join(risks)}.\n\n"
@@ -256,7 +285,7 @@ class SustainabilityCoach:
                     "Phase 2: Household Adjustments (Month 1)\n"
                     "Phase 3: Systematic Upgrades (Month 3-6)\n"
                     "Phase 4: Structural Changes (Year 1+)\n"
-                    "Each phase should contain 3 specific, highly tailored actions based on the user's risks. "
+                    "Each phase should contain 3 specific actions. "
                     "Estimate the difficulty (Easy, Medium, Hard) and projected CO2 savings in kg for each phase."
                 )
 
@@ -288,7 +317,7 @@ class SustainabilityCoach:
             except Exception as e:
                 logger.error(f"Error calling Gemini in generate_roadmap: {e}")
 
-        # Local fallback logic
+        # Local fallback roadmap
         steps = [
             {
                 "phase": "Phase 1: Immediate Wins (Week 1-2)",
@@ -345,21 +374,16 @@ class SustainabilityCoach:
     @staticmethod
     def scan_carbon_image(image_base64: str) -> dict:
         """
-        Uses Gemini 2.0 Multimodal capabilities to scan a receipt, utility bill, or food image,
-        extract carbon log details, and format as structured output.
+        Extracts carbon-relevant activity from an image base64 receipt/bill using Gemini.
         """
         if genai and types and settings.GEMINI_API_KEY:
             try:
-                # Strip base64 metadata header if present
                 if "," in image_base64:
                     image_base64 = image_base64.split(",")[1]
                 
-                # Convert base64 to bytes
                 image_bytes = base64.b64decode(image_base64)
-                
                 client = genai.Client(api_key=settings.GEMINI_API_KEY)
                 
-                # Call gemini with multimodal inline data
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
@@ -368,16 +392,14 @@ class SustainabilityCoach:
                             mime_type="image/jpeg"
                         ),
                         (
-                            "Analyze this image (which could be a utility bill, shopping receipt, meal, or transit ticket). "
-                            "Extract the carbon-relevant activity and categorize it into one of these categories and subcategories:\n"
+                            "Analyze this image. Extract the carbon-relevant activity and categorize it:\n"
                             "- transportation: petrol_car, diesel_car, electric_car, motorcycle, metro, bus, short_flight, long_flight\n"
                             "- energy: electricity, gas, water\n"
                             "- food: beef, pork_poultry, dairy, vegetarian, vegan\n"
                             "- waste: landfill, recycled, composted\n"
                             "- shopping: clothing, electronics, misc\n"
                             "- digital: streaming, browsing, ai_query\n\n"
-                            "Return the structured details including a numeric value (e.g. quantity of food in kg, electricity in kWh, price in USD, distance in km), "
-                            "the correct unit, and a friendly explanation."
+                            "Return structured JSON matching the response schema."
                         )
                     ],
                     config={
@@ -396,7 +418,6 @@ class SustainabilityCoach:
             except Exception as e:
                 logger.error(f"Error calling Gemini in scan_carbon_image: {e}")
                 
-        # Mock fallback if no api key or error
         return {
             "category": "food",
             "subcategory": "vegan",

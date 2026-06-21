@@ -44,6 +44,7 @@ class UserProfile(Base):
     streak_count = Column(Integer, default=0, nullable=False)
     last_active_date = Column(String(50), nullable=True)  # YYYY-MM-DD
     carbon_budget = Column(Float, default=15.0, nullable=False)  # target kg CO2e per day
+    region = Column(String(50), default="US", nullable=False)
 
     user = relationship("User", back_populates="profile")
 
@@ -165,6 +166,8 @@ class OffsetProject(Base):
     co2_offset = Column(Float, nullable=False)  # Total capacity or current offset in tons
     image_url = Column(String(255), nullable=True)
     verified_by = Column(String(255), default="Gold Standard", nullable=False)
+    registry_id = Column(String(100), nullable=True)
+    registry_link = Column(String(512), nullable=True)
 
 class UserOffset(Base):
     __tablename__ = "user_offsets"
@@ -175,6 +178,8 @@ class UserOffset(Base):
     cost_paid = Column(Float, nullable=False)  # USD
     co2_offsetted = Column(Float, nullable=False)  # kg CO2 offsetted
     purchased_at = Column(DateTime(timezone=True), server_default=func.now())
+    registry_serial_number = Column(String(255), nullable=True)
+    certificate_download_url = Column(String(512), nullable=True)
 
     user = relationship("User", back_populates="offsets")
     project = relationship("OffsetProject")
@@ -199,3 +204,14 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User")
+
+class AuditLog(Base):
+    __tablename__ = "security_audit_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type = Column(String(100), nullable=False)  # e.g., login_success, login_failed, token_refresh
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(100), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

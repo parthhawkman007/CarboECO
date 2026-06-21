@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, beforeEach } from "vitest";
 import React from "react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 describe("ThemeToggle accessibility", () => {
   beforeEach(() => {
@@ -10,7 +11,11 @@ describe("ThemeToggle accessibility", () => {
   });
 
   it("exposes mutually exclusive pressed states for all theme buttons", () => {
-    render(<ThemeToggle />);
+    render(
+      <ThemeProvider>
+        <ThemeToggle />
+      </ThemeProvider>
+    );
 
     const light = screen.getByRole("button", { name: /switch to light theme/i });
     const dark = screen.getByRole("button", { name: /switch to dark theme/i });

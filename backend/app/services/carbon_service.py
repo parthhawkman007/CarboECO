@@ -1,5 +1,5 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, case, select
 from app.services.cache import CacheService
 from datetime import datetime, timedelta, timezone
 import logging
@@ -11,12 +11,46 @@ logger = logging.getLogger("carboeco")
 
 class CarbonService:
     @staticmethod
-    def calculate_emissions(category: str, subcategory: str, value: float) -> tuple[float, str]:
+    async def get_live_grid_intensity(region: str) -> float:
+        """
+        Fetches real-time grid carbon intensity from Electricity Maps API.
+        Falls back to config static values if API key is not set or request fails.
+        """
+        import httpx
+        api_key = settings.ELECTRICITY_MAPS_API_KEY
+        static_intensity = settings.GRID_INTENSITY_BY_REGION.get(region.upper(), settings.EF_ELECTRICITY_GRID)
+        
+        if not api_key:
+            return static_intensity
+        
+        zone_map = {'IN': 'IN-NO', 'US': 'US-CAL-CISO', 'EU': 'DE', 'FR': 'FR', 'GL': 'DE'}
+        zone = zone_map.get(region.upper(), 'DE')
+        
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(
+                    f"{settings.ELECTRICITY_MAPS_BASE_URL}/carbon-intensity/latest",
+                    params={'zone': zone},
+                    headers={'auth-token': api_key}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    grams_per_kwh = data.get('carbonIntensity', 0)
+                    return round(grams_per_kwh / 1000.0, 4)  # Convert g/kWh to kg/kWh
+        except Exception as e:
+            logger.warning(f"Electricity Maps API failed for region {region}: {e}")
+        
+        return static_intensity
+
+    @staticmethod
+    def calculate_emissions(category: str, subcategory: str, value: float, region: str = "US", live_grid_intensity: float | None = None) -> tuple[float, str]:
         """
         Calculates carbon emissions in kg CO2e and returns a tuple (emissions, explanation).
+        Calculations are regional-aware for utilities (electricity).
         """
         cat = category.lower()
         sub = subcategory.lower()
+        region_upper = region.upper()
 
         if value <= 0:
             raise ValueError("Consumption value must be greater than zero.")
@@ -73,8 +107,19 @@ class CarbonService:
 
         elif cat == "energy":
             if "electricity" in sub:
-                co2 = value * settings.EF_ELECTRICITY_GRID
-                explanation = f"Consuming {value} kWh of grid electricity emitted {co2:.2f} kg CO2e. Switch to energy-saving appliances or green tariffs."
+                # Region-specific grid factors mapping
+                ef_grid = live_grid_intensity if live_grid_intensity is not None else settings.GRID_INTENSITY_BY_REGION.get(region_upper, settings.EF_ELECTRICITY_GRID)
+                co2 = value * ef_grid
+                if live_grid_intensity is not None:
+                    explanation = (
+                        f"Consuming {value} kWh of grid electricity in region {region_upper} emitted {co2:.2f} kg CO2e "
+                        f"(real-time grid intensity: {ef_grid} kg/kWh). Switch to energy-saving appliances or solar."
+                    )
+                else:
+                    explanation = (
+                        f"Consuming {value} kWh of grid electricity in region {region_upper} emitted {co2:.2f} kg CO2e "
+                        f"(grid intensity: {ef_grid} kg/kWh). Switch to energy-saving appliances or solar."
+                    )
             elif "gas" in sub:
                 co2 = value * settings.EF_GAS
                 explanation = f"Using {value} kWh of natural gas emitted {co2:.2f} kg CO2e. Lowering your thermostat 1 degree can save 10% gas."
@@ -152,8 +197,18 @@ class CarbonService:
         return co2, explanation
 
     @classmethod
-    def add_carbon_log(cls, db: Session, user_id: int, log_in: CarbonLogCreate) -> CarbonLog:
-        co2_equivalent, explanation = cls.calculate_emissions(log_in.category, log_in.subcategory, log_in.value)
+    async def add_carbon_log(cls, db: AsyncSession, user_id: int, log_in: CarbonLogCreate) -> CarbonLog:
+        # Load user profile to check region
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        res_prof = await db.execute(stmt_prof)
+        profile = res_prof.scalar_one_or_none()
+        region = profile.region if profile else "US"
+
+        live_grid_intensity = None
+        if log_in.category.lower() == "energy" and "electricity" in log_in.subcategory.lower():
+            live_grid_intensity = await cls.get_live_grid_intensity(region)
+
+        co2_equivalent, explanation = cls.calculate_emissions(log_in.category, log_in.subcategory, log_in.value, region, live_grid_intensity)
 
         # Create log
         log = CarbonLog(
@@ -168,25 +223,29 @@ class CarbonService:
             metadata_json=log_in.metadata_json
         )
         db.add(log)
-        db.flush()
+        await db.flush()
 
         # Update profile stats (XP, streaks)
-        cls.update_user_stats(db, user_id, log_in.date)
+        await cls.update_user_stats(db, user_id, log_in.date)
 
         # Update Digital Twin energy efficiency score
-        cls.update_digital_twin_score(db, user_id)
+        await cls.update_digital_twin_score(db, user_id)
 
         # Award Achievements
-        cls.check_achievements(db, user_id)
+        await cls.check_achievements(db, user_id)
 
-        db.commit()
-        db.refresh(log)
-        CacheService.invalidate_pattern("leaderboard:*")
+        await db.commit()
+        await db.refresh(log)
+        
+        # Async invalidate pattern
+        await CacheService.invalidate_pattern("leaderboard:*")
         return log
 
     @staticmethod
-    def update_user_stats(db: Session, user_id: int, log_date_str: str):
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    async def update_user_stats(db: AsyncSession, user_id: int, log_date_str: str):
+        stmt = select(UserProfile).where(UserProfile.user_id == user_id)
+        res = await db.execute(stmt)
+        profile = res.scalar_one_or_none()
         if not profile:
             return
 
@@ -218,13 +277,19 @@ class CarbonService:
         if new_level > profile.level:
             profile.level = new_level
 
-        db.flush()
+        await db.flush()
 
     @staticmethod
-    def update_digital_twin_score(db: Session, user_id: int):
-        # Fetch digital twin
-        twin = db.query(DigitalTwinState).filter(DigitalTwinState.user_id == user_id).first()
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    async def update_digital_twin_score(db: AsyncSession, user_id: int):
+        # Fetch digital twin and profile
+        stmt_twin = select(DigitalTwinState).where(DigitalTwinState.user_id == user_id)
+        twin_res = await db.execute(stmt_twin)
+        twin = twin_res.scalar_one_or_none()
+
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        prof_res = await db.execute(stmt_prof)
+        profile = prof_res.scalar_one_or_none()
+        
         if not twin or not profile:
             return
 
@@ -232,10 +297,12 @@ class CarbonService:
         today = datetime.now(timezone.utc)
         seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
         
-        logs = db.query(CarbonLog).filter(
+        stmt_logs = select(CarbonLog).where(
             CarbonLog.user_id == user_id,
             CarbonLog.date >= seven_days_ago
-        ).all()
+        )
+        logs_res = await db.execute(stmt_logs)
+        logs = logs_res.scalars().all()
 
         total_weekly_co2 = sum(log.co2_equivalent for log in logs)
         average_daily_co2 = total_weekly_co2 / 7.0 if logs else 0.0
@@ -250,7 +317,6 @@ class CarbonService:
         twin.energy_efficiency_score = round(eff_score, 1)
 
         # Update growth stage based on level and efficiency score
-        # Growth Stage: 1 to 5
         stage = 1
         if profile.level >= 2 and eff_score >= 40:
             stage = 2
@@ -277,50 +343,48 @@ class CarbonService:
             avatar["theme"] = "warn"
             
         twin.current_avatar_state_json = avatar
-        db.flush()
+        await db.flush()
 
     @staticmethod
-    def check_achievements(db: Session, user_id: int):
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    async def check_achievements(db: AsyncSession, user_id: int):
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        prof_res = await db.execute(stmt_prof)
+        profile = prof_res.scalar_one_or_none()
         if not profile:
             return
 
         # 1. Get existing achievement codes
-        unlocked = db.query(Achievement.badge_code).join(
+        stmt_unlocked = select(Achievement.badge_code).join(
             UserAchievement, UserAchievement.achievement_id == Achievement.id
-        ).filter(UserAchievement.user_id == user_id).all()
+        ).where(UserAchievement.user_id == user_id)
+        res_unlocked = await db.execute(stmt_unlocked)
+        unlocked = res_unlocked.all()
         unlocked_codes = {item[0] for item in unlocked}
 
         # Determine which achievement codes we potentially need to unlock
         target_codes = []
-        if "first_log" not in unlocked_codes:
-            target_codes.append("first_log")
-        if "transit_master" not in unlocked_codes:
-            target_codes.append("transit_master")
-        if "green_eater" not in unlocked_codes:
-            target_codes.append("green_eater")
-        if "zero_waste" not in unlocked_codes:
-            target_codes.append("zero_waste")
-        if "streak_3" not in unlocked_codes:
-            target_codes.append("streak_3")
-        if "streak_7" not in unlocked_codes:
-            target_codes.append("streak_7")
+        for code in ["first_log", "transit_master", "green_eater", "zero_waste", "streak_3", "streak_7"]:
+            if code not in unlocked_codes:
+                target_codes.append(code)
 
         if not target_codes:
-            # All achievements already unlocked!
             return
 
-        # 2. Batch fetch all potential achievements from database in one query
-        achievements = db.query(Achievement).filter(Achievement.badge_code.in_(target_codes)).all()
+        # 2. Batch fetch achievements
+        stmt_ach = select(Achievement).where(Achievement.badge_code.in_(target_codes))
+        res_ach = await db.execute(stmt_ach)
+        achievements = res_ach.scalars().all()
         achievement_map = {ach.badge_code: ach for ach in achievements}
 
-        # 3. Perform a single batch query for carbon log statistics using conditional aggregation
-        counts = db.query(
+        # 3. Batch query carbon statistics
+        stmt_counts = select(
             func.count(CarbonLog.id).label("total_count"),
             func.sum(case(((CarbonLog.category == "transportation") & (CarbonLog.subcategory.in_(["metro", "bus", "train"])), 1), else_=0)).label("transit_count"),
             func.sum(case(((CarbonLog.category == "food") & (CarbonLog.subcategory.in_(["vegan", "vegetarian"])), 1), else_=0)).label("vegan_count"),
             func.sum(case(((CarbonLog.category == "waste") & (CarbonLog.subcategory == "recycled"), 1), else_=0)).label("recycling_count")
-        ).filter(CarbonLog.user_id == user_id).first()
+        ).where(CarbonLog.user_id == user_id)
+        res_counts = await db.execute(stmt_counts)
+        counts = res_counts.first()
 
         logs_count = counts.total_count or 0
         transit_count = counts.transit_count or 0
@@ -328,79 +392,59 @@ class CarbonService:
         recycling_count = counts.recycling_count or 0
 
         # Helper to unlock
-        def unlock(code: str):
+        async def unlock(code: str):
             ach = achievement_map.get(code)
             if ach:
                 ua = UserAchievement(user_id=user_id, achievement_id=ach.id)
                 db.add(ua)
                 profile.xp += ach.xp_reward
-                db.flush()
+                await db.flush()
 
-        # 1. First Log
         if logs_count >= 1:
-            unlock("first_log")
-
-        # 2. Transit Master
+            await unlock("first_log")
         if transit_count >= 5:
-            unlock("transit_master")
-
-        # 3. Green Eater
+            await unlock("transit_master")
         if vegan_count >= 5:
-            unlock("green_eater")
-
-        # 4. Zero Waste
+            await unlock("green_eater")
         if recycling_count >= 5:
-            unlock("zero_waste")
-
-        # 5. Streak badges
+            await unlock("zero_waste")
         if profile.streak_count >= 3:
-            unlock("streak_3")
+            await unlock("streak_3")
         if profile.streak_count >= 7:
-            unlock("streak_7")
+            await unlock("streak_7")
 
     @classmethod
-    def get_dashboard_summary(cls, db: Session, user_id: int) -> dict:
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    async def get_dashboard_summary(cls, db: AsyncSession, user_id: int) -> dict:
+        stmt_prof = select(UserProfile).where(UserProfile.user_id == user_id)
+        res_prof = await db.execute(stmt_prof)
+        profile = res_prof.scalar_one_or_none()
         budget = profile.carbon_budget if profile else 15.0
 
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         yesterday_str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        # Calculate daily emissions (today)
-        daily_co2 = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.date == today_str
-        ).scalar() or 0.0
-
-        # Calculate weekly emissions (last 7 days)
         seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
-        weekly_co2 = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.date >= seven_days_ago
-        ).scalar() or 0.0
-
-        # Calculate monthly emissions (last 30 days)
         thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        monthly_co2 = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.date >= thirty_days_ago
-        ).scalar() or 0.0
-
-        # Calculate annual emissions (last 365 days)
         three_sixty_five_days_ago = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%d")
-        annual_co2 = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-            CarbonLog.user_id == user_id,
-            CarbonLog.date >= three_sixty_five_days_ago
-        ).scalar() or 0.0
+        
+        # Query 1: Single database roundtrip for all statistics via conditional aggregation
+        stmt_stats = select(
+            func.sum(case(((CarbonLog.date == today_str), CarbonLog.co2_equivalent), else_=0.0)).label("daily"),
+            func.sum(case(((CarbonLog.date >= seven_days_ago), CarbonLog.co2_equivalent), else_=0.0)).label("weekly"),
+            func.sum(case(((CarbonLog.date >= thirty_days_ago), CarbonLog.co2_equivalent), else_=0.0)).label("monthly"),
+            func.sum(case(((CarbonLog.date >= three_sixty_five_days_ago), CarbonLog.co2_equivalent), else_=0.0)).label("annual"),
+            func.sum(CarbonLog.co2_equivalent).label("all_time")
+        ).where(CarbonLog.user_id == user_id)
+        
+        stats_res = await db.execute(stmt_stats)
+        stats = stats_res.first()
+        
+        daily_co2 = float(stats.daily or 0.0)
+        weekly_co2 = float(stats.weekly or 0.0)
+        monthly_co2 = float(stats.monthly or 0.0)
+        annual_co2 = float(stats.annual or 0.0)
+        total_all_time = float(stats.all_time or 0.0)
 
-        # Efficiency rating calculation:
-        # daily budget comparison
-        # Let's say if daily_co2 <= budget * 0.7: A+
-        # If daily_co2 <= budget: A
-        # If daily_co2 <= budget * 1.2: B
-        # If daily_co2 <= budget * 1.5: C
-        # Else: F
-        # But if no logs exist yet today, check weekly average
+        # Efficiency rating calculation
         eval_co2 = daily_co2
         if daily_co2 == 0.0:
             eval_co2 = weekly_co2 / 7.0 if weekly_co2 > 0.0 else 0.0
@@ -418,28 +462,30 @@ class CarbonService:
         else:
             rating = "F"
 
-        # Category Breakdown
+        # Query 2: Single database roundtrip for category breakdown via GROUP BY
+        stmt_breakdown = select(
+            CarbonLog.category,
+            func.sum(CarbonLog.co2_equivalent).label("co2_sum"),
+            func.count(CarbonLog.id).label("log_count")
+        ).where(
+            CarbonLog.user_id == user_id
+        ).group_by(
+            CarbonLog.category
+        )
+        
+        breakdown_res = await db.execute(stmt_breakdown)
+        breakdown_rows = breakdown_res.all()
+        breakdown_map = {row.category: (float(row.co2_sum or 0.0), int(row.log_count or 0)) for row in breakdown_rows}
+
         categories = ["transportation", "energy", "food", "waste", "shopping", "digital"]
         breakdown = []
-        total_all_time = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-            CarbonLog.user_id == user_id
-        ).scalar() or 1e-5  # avoid division by zero
 
         for cat in categories:
-            cat_sum = db.query(func.sum(CarbonLog.co2_equivalent)).filter(
-                CarbonLog.user_id == user_id,
-                CarbonLog.category == cat
-            ).scalar() or 0.0
-            
-            cat_count = db.query(func.count(CarbonLog.id)).filter(
-                CarbonLog.user_id == user_id,
-                CarbonLog.category == cat
-            ).scalar() or 0
-
+            cat_sum, cat_count = breakdown_map.get(cat, (0.0, 0))
             breakdown.append({
                 "category": cat,
                 "co2_equivalent": round(cat_sum, 2),
-                "percentage": round((cat_sum / total_all_time) * 100.0, 1) if total_all_time > 1e-5 else 0.0,
+                "percentage": round((cat_sum / (total_all_time or 1e-5)) * 100.0, 1) if total_all_time > 1e-5 else 0.0,
                 "logs_count": cat_count
             })
 

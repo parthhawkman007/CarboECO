@@ -3,72 +3,85 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { 
   Leaf, Brain, BarChart3, Users, BookOpen, Compass, Zap, Flame, 
   ArrowRight, Sparkles, ShieldCheck, Heart, Landmark, Globe, CheckCircle2,
   TrendingDown, ShieldAlert, Cpu
 } from "lucide-react";
 import { cinematicVariants, cardVariants, easeTokens } from "@/utils/motion";
+import { getApiUrl } from "@/utils/api";
 
 const ThreeEarth = dynamic(() => import("@/components/ThreeEarth"), { ssr: false });
 
 export default function Home() {
-  // Global Carbon Counter ticker
-  const [globalCo2, setGlobalCo2] = useState(14805492.4);
+  const shouldReduceMotion = useReducedMotion();
+
+  // Global Carbon stats state
+  const [stats, setStats] = useState({
+    total_co2: 14805492.4,
+    active_citizens: 34182,
+    trees_equivalent: 672976,
+    energy_saved_kwh: 12140503.7,
+    missions_logged: 118504
+  });
+
+  const [liveEvents, setLiveEvents] = useState<Array<{ id: number; user: string; action: string; co2: string }>>([]);
+  const [tickerCo2, setTickerCo2] = useState(14805492.4);
+
   const [activeTab, setActiveTab] = useState<"copilot" | "metrics" | "simulator">("copilot");
   const [simKm, setSimKm] = useState(12000);
   const [simDiet, setSimDiet] = useState(3);
 
-  // Live action ticker simulation events
-  const [liveEvents, setLiveEvents] = useState([
-    { id: 1, user: "Sven K.", action: "commuted by e-bike in Berlin", co2: "3.4 kg" },
-    { id: 2, user: "Elena R.", action: "composted organic waste in Rome", co2: "1.1 kg" },
-    { id: 3, user: "Hiroshi T.", action: "swapped beef for vegetarian lunch in Tokyo", co2: "2.5 kg" },
-    { id: 4, user: "Emma W.", action: "installed smart plug switches in London", co2: "0.9 kg" }
-  ]);
+  // Sync ticker with fetched total CO2
+  useEffect(() => {
+    setTickerCo2(stats.total_co2);
+  }, [stats.total_co2]);
 
   useEffect(() => {
-    // Increment carbon counter in real-time
+    // 1. Fetch dynamic global statistics from backend
+    const fetchGlobalStats = async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/carbon/global-summary`);
+        if (res.ok) {
+          const data = await res.json();
+          setStats({
+            total_co2: data.total_co2,
+            active_citizens: data.active_citizens,
+            trees_equivalent: data.trees_equivalent,
+            energy_saved_kwh: data.energy_saved_kwh,
+            missions_logged: data.missions_logged
+          });
+          setLiveEvents(data.recent_events);
+        }
+      } catch (err) {
+        console.error("Failed to fetch global carbon summary:", err);
+      }
+    };
+
+    fetchGlobalStats();
+    
+    // Poll updates every 10 seconds
+    const fetchInterval = setInterval(fetchGlobalStats, 10000);
+
+    // Increment carbon counter in real-time smoothly
     const counterInterval = setInterval(() => {
-      setGlobalCo2((prev) => prev + 0.42);
+      setTickerCo2((prev) => prev + 0.42);
     }, 1000);
 
-    // Swap simulated live events to make the movement feel alive
-    const eventInterval = setInterval(() => {
-      const names = ["Marcus L.", "Chloe P.", "Chen W.", "Sofia B.", "Ravi S.", "Liam O.", "Amara K."];
-      const actions = [
-        "commuted via electric train", 
-        "activated eco energy tariffs", 
-        "completed Zero Waste challenge",
-        "purchased Amazon forest offsets", 
-        "unplugged domestic standby electronics",
-        "swapped grid energy for solar cells"
-      ];
-      const savings = [
-        "5.2 kg", "2.1 kg", "1.5 kg", "12.0 kg", "0.7 kg", "8.4 kg"
-      ];
-
-      const randomName = names[Math.floor(Math.random() * names.length)];
-      const randomAction = actions[Math.floor(Math.random() * actions.length)];
-      const randomSaving = savings[Math.floor(Math.random() * savings.length)];
-
-      setLiveEvents(prev => {
-        const next = [...prev];
-        next.pop();
-        next.unshift({
-          id: Date.now(),
-          user: randomName,
-          action: `${randomAction}`,
-          co2: randomSaving
-        });
-        return next;
+    // 2. Register PWA service worker client-side
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js")
+          .then((reg) => console.log("Service Worker registered successfully:", reg.scope))
+          .catch((err) => console.error("Service Worker registration failed:", err));
       });
-    }, 4000);
+    }
 
     return () => {
+      clearInterval(fetchInterval);
       clearInterval(counterInterval);
-      clearInterval(eventInterval);
     };
   }, []);
 
@@ -161,7 +174,7 @@ export default function Home() {
             <TrendingDown className="h-6 w-6 text-brand-emerald animate-bounce" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Total CO₂ Reduced</span>
             <span className="text-2xl font-black text-brand-emerald font-mono leading-none mt-1">
-              {globalCo2.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg
+              {tickerCo2.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg
             </span>
           </div>
 
@@ -169,7 +182,9 @@ export default function Home() {
           <div className="flex flex-col gap-1.5 items-center justify-center border-l border-gray-100 dark:border-brand-borderDark/30 p-3">
             <Globe className="h-6 w-6 text-brand-sky animate-spin-slow" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Active Citizens</span>
-            <span className="text-2xl font-black text-white font-mono leading-none mt-1">34,182</span>
+            <span className="text-2xl font-black text-white font-mono leading-none mt-1">
+              {stats.active_citizens.toLocaleString()}
+            </span>
           </div>
 
           {/* Trees Equivalent */}
@@ -177,7 +192,7 @@ export default function Home() {
             <Leaf className="h-6 w-6 text-brand-sky" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Trees Equivalent</span>
             <span className="text-2xl font-black text-brand-sky font-mono leading-none mt-1">
-              {Math.round(globalCo2 / 22).toLocaleString()} trees
+              {stats.trees_equivalent.toLocaleString()} trees
             </span>
           </div>
 
@@ -186,7 +201,7 @@ export default function Home() {
             <Zap className="h-6 w-6 text-yellow-500" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Energy Saved</span>
             <span className="text-2xl font-black text-yellow-500 font-mono leading-none mt-1">
-              {Math.round(globalCo2 * 0.82).toLocaleString()} kWh
+              {stats.energy_saved_kwh.toLocaleString(undefined, { maximumFractionDigits: 1 })} kWh
             </span>
           </div>
 
@@ -194,12 +209,17 @@ export default function Home() {
           <div className="flex flex-col gap-1.5 items-center justify-center border-l border-gray-100 dark:border-brand-borderDark/30 p-3">
             <CheckCircle2 className="h-6 w-6 text-brand-emerald" />
             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Missions Logged</span>
-            <span className="text-2xl font-black text-white font-mono leading-none mt-1">118,504</span>
+            <span className="text-2xl font-black text-white font-mono leading-none mt-1">
+              {stats.missions_logged.toLocaleString()}
+            </span>
           </div>
         </div>
 
         {/* Live scrolling Event stream tape */}
-        <div className="w-full bg-brand-darkBg/60 border border-brand-borderDark/30 rounded-2xl p-4 overflow-hidden relative">
+        <div 
+          aria-live="polite" 
+          className="w-full bg-brand-darkBg/60 border border-brand-borderDark/30 rounded-2xl p-4 overflow-hidden relative"
+        >
           <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1.5 px-3 py-1 bg-brand-emerald/10 border border-brand-emerald/20 text-brand-emerald rounded-lg text-[9px] font-bold uppercase tracking-wider">
             <Cpu className="h-3 w-3 animate-pulse" />
             <span>Eco Telemetry Stream</span>

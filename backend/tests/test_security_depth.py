@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 from sqlalchemy.orm import Session
 
 from app.auth.auth import create_refresh_token
@@ -21,18 +21,45 @@ def auth_headers(client: TestClient, email: str, password: str = "securepass123"
     return get_auth_headers(client, email, password)
 
 
-def test_refresh_token_expiration_removes_stale_token(client: TestClient, db_session: Session):
-    register_and_login(client, "expired_refresh@carboeco.org")
-    user = db_session.query(User).filter(User.email == "expired_refresh@carboeco.org").first()
-    token = create_refresh_token(db_session, user.id)
-    db_token = db_session.query(RefreshToken).filter(RefreshToken.token == token).first()
-    db_token.expires_at = datetime.utcnow() - timedelta(seconds=1)
-    db_session.commit()
+def test_refresh_token_expiration_removes_stale_token(client: TestClient):
+    import asyncio
+    import hashlib
+    from tests.conftest import TestingAsyncSessionLocal
+    from sqlalchemy import select
 
+    register_and_login(client, "expired_refresh@carboeco.org")
+    
+    async def run_test():
+        async with TestingAsyncSessionLocal() as db_session:
+            stmt = select(User).where(User.email == "expired_refresh@carboeco.org")
+            res = await db_session.execute(stmt)
+            user = res.scalar_one()
+            
+            token = await create_refresh_token(db_session, user.id)
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            
+            stmt_tok = select(RefreshToken).where(RefreshToken.token == token_hash)
+            res_tok = await db_session.execute(stmt_tok)
+            db_token = res_tok.scalar_one()
+            
+            db_token.expires_at = datetime.utcnow() - timedelta(seconds=1)
+            await db_session.commit()
+            
+            return token
+            
+    token = asyncio.run(run_test())
     response = client.post("/api/auth/refresh", cookies={"refresh_token": token})
 
     assert response.status_code == 401
-    assert db_session.query(RefreshToken).filter(RefreshToken.token == token).first() is None
+    
+    async def check_deleted():
+        async with TestingAsyncSessionLocal() as db_session:
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            stmt_tok = select(RefreshToken).where(RefreshToken.token == token_hash)
+            res_tok = await db_session.execute(stmt_tok)
+            assert res_tok.scalar_one_or_none() is None
+            
+    asyncio.run(check_deleted())
 
 
 def test_access_token_without_subject_is_rejected(client: TestClient):
@@ -130,14 +157,10 @@ def test_xss_content_injection_attempt_rejected(client: TestClient):
     assert response.status_code == 422
 
 
-def test_production_mode_requires_secure_key(caplog):
-    """When ENV=production and SECRET_KEY is the default insecure key, Settings must dynamically generate a secure key."""
+def test_production_mode_requires_secure_key():
+    """When ENV=production and SECRET_KEY is the default insecure key, Settings must raise a ValueError."""
     from app.config import Settings, _INSECURE_DEFAULT_KEY
-    import logging
+    import pytest
 
-    with caplog.at_level(logging.WARNING):
-        settings = Settings(ENV="production", SECRET_KEY=_INSECURE_DEFAULT_KEY)
-    
-    assert settings.SECRET_KEY != _INSECURE_DEFAULT_KEY
-    assert len(settings.SECRET_KEY) > 10
-    assert any("Insecure default SECRET_KEY detected in production" in record.message for record in caplog.records)
+    with pytest.raises(ValueError, match="Insecure default SECRET_KEY is not allowed in production mode"):
+        Settings(ENV="production", SECRET_KEY=_INSECURE_DEFAULT_KEY)

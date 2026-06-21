@@ -1,37 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useTheme } from "@/components/ThemeProvider";
 import { Sun, Moon, Eye } from "lucide-react";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<"light" | "dark" | "high-contrast">("dark");
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | "high-contrast" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    } else {
-      applyTheme("dark"); // Default
-    }
-  }, []);
-
-  const applyTheme = (t: "light" | "dark" | "high-contrast") => {
-    const root = document.documentElement;
-    root.classList.remove("dark", "high-contrast");
-    
-    if (t === "dark") {
-      root.classList.add("dark");
-    } else if (t === "high-contrast") {
-      root.classList.add("high-contrast");
-    }
-    localStorage.setItem("theme", t);
-  };
-
-  const handleToggle = (t: "light" | "dark" | "high-contrast") => {
-    setTheme(t);
-    applyTheme(t);
-  };
+  const { theme, setTheme } = useTheme();
 
   return (
     <div 
@@ -40,7 +13,7 @@ export default function ThemeToggle() {
       aria-label="Theme selector"
     >
       <button
-        onClick={() => handleToggle("light")}
+        onClick={() => setTheme("light")}
         className={`p-1.5 rounded-full transition-all duration-200 ${
           theme === "light" 
             ? "bg-white text-brand-emerald shadow-sm" 
@@ -53,7 +26,7 @@ export default function ThemeToggle() {
       </button>
 
       <button
-        onClick={() => handleToggle("dark")}
+        onClick={() => setTheme("dark")}
         className={`p-1.5 rounded-full transition-all duration-200 ${
           theme === "dark" 
             ? "bg-brand-emerald text-white shadow-sm" 
@@ -66,7 +39,7 @@ export default function ThemeToggle() {
       </button>
 
       <button
-        onClick={() => handleToggle("high-contrast")}
+        onClick={() => setTheme("high-contrast")}
         className={`p-1.5 rounded-full transition-all duration-200 ${
           theme === "high-contrast" 
             ? "bg-yellow-400 text-black shadow-sm" 

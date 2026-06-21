@@ -254,7 +254,13 @@ export default function Community() {
             </h3>
 
             {/* Events scrolling feed */}
-            <div className="flex flex-col gap-3 max-h-64 overflow-y-auto pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-brand-borderDark">
+            <div
+              className="flex flex-col gap-3 max-h-64 overflow-y-auto pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-brand-borderDark"
+              aria-live="polite"
+              aria-atomic="false"
+              aria-label="Community chat messages"
+              role="log"
+            >
               {events.length === 0 ? (
                 <div className="text-center py-8 text-xs text-gray-500 dark:text-gray-400">
                   Waiting for community updates...

@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from app.models import User, CarbonLog, UserAchievement, Achievement
+from datetime import datetime, timezone
 
 def test_integration_auth_flow(client: TestClient):
     # 1. Register a new user
@@ -64,11 +65,12 @@ def test_integration_offline_sync(client: TestClient, db_session: Session):
     token = login_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 2. Simulate offline batch sync of multiple logged actions
+    # 2. Simulate offline batch sync of multiple logged actions with current date
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     pending_logs = [
-        {"date": "2026-06-17", "category": "transportation", "subcategory": "metro", "value": 15.0, "unit": "km"},
-        {"date": "2026-06-17", "category": "food", "subcategory": "vegan", "value": 2.0, "unit": "kg"},
-        {"date": "2026-06-17", "category": "waste", "subcategory": "recycled", "value": 10.0, "unit": "kg"},
+        {"date": today_str, "category": "transportation", "subcategory": "metro", "value": 15.0, "unit": "km"},
+        {"date": today_str, "category": "food", "subcategory": "vegan", "value": 2.0, "unit": "kg"},
+        {"date": today_str, "category": "waste", "subcategory": "recycled", "value": 10.0, "unit": "kg"},
     ]
 
     for log in pending_logs:

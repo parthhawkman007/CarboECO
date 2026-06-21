@@ -1,42 +1,55 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase
 import logging
 from app.config import settings
 
 logger = logging.getLogger("carboeco")
 
-# Determine engine URL: try PostgreSQL first, fallback to SQLite if connection fails
 DATABASE_URL = settings.DATABASE_URL
+# Convert to asyncpg if standard postgresql connection string is passed
+if DATABASE_URL.startswith("postgresql://"):
+    ASYNC_DB_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgres://"):
+    ASYNC_DB_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+else:
+    ASYNC_DB_URL = DATABASE_URL
+
+SQLITE_FALLBACK_URL = settings.SQLITE_FALLBACK_URL
+if SQLITE_FALLBACK_URL.startswith("sqlite:///"):
+    ASYNC_SQLITE_URL = SQLITE_FALLBACK_URL.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+else:
+    ASYNC_SQLITE_URL = SQLITE_FALLBACK_URL
+
 engine = None
-SessionLocal = None
+AsyncSessionLocal = None
+
+class Base(DeclarativeBase):
+    pass
 
 try:
-    if DATABASE_URL.startswith("postgresql"):
-        engine = create_engine(
-            DATABASE_URL,
+    if "postgresql" in ASYNC_DB_URL:
+        engine = create_async_engine(
+            ASYNC_DB_URL,
             pool_size=20,
             max_overflow=10,
-            pool_pre_ping=True
+            pool_pre_ping=True,
+            connect_args={"server_settings": {"statement_timeout": "5000"}}  # 5 second query timeout
         )
-        # Try to connect to ensure it's up
-        with engine.connect() as conn:
-            pass
-        logger.info("Successfully connected to PostgreSQL database.")
+        logger.info("Configured PostgreSQL async engine.")
     else:
         raise ValueError("Non-postgres URL, falling back to SQLite.")
 except Exception as e:
-    logger.warning(f"PostgreSQL connection failed or not configured ({e}). Falling back to SQLite.")
-    engine = create_engine(
-        settings.SQLITE_FALLBACK_URL,
-        connect_args={"check_same_thread": False} if settings.SQLITE_FALLBACK_URL.startswith("sqlite") else {}
+    logger.warning(f"PostgreSQL async engine configuration failed or fallback active ({e}). Using SQLite async engine.")
+    engine = create_async_engine(
+        ASYNC_SQLITE_URL,
+        connect_args={"check_same_thread": False} if "sqlite" in ASYNC_SQLITE_URL else {}
     )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine, class_=AsyncSession)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    async with AsyncSessionLocal() as db:
+        try:
+            yield db
+        finally:
+            await db.close()

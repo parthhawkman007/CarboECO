@@ -1,5 +1,6 @@
 "use client";
 import { getApiUrl, getWsUrl, getAuthHeaders } from "@/utils/api";
+import AccessibleChart from "@/components/AccessibleChart";
 
 
 import { useState, useEffect } from "react";
@@ -26,6 +27,14 @@ interface ForecastData {
   confidence_interval: number[];
   explanation: string;
   feature_importance: Record<string, number>;
+  metrics?: {
+    rmse: number;
+    mae: number;
+    model_version: number;
+    trained_at: string;
+  };
+  drift_detected?: boolean;
+  model_coefficients?: Record<string, number>;
 }
 
 interface RiskData {
@@ -214,6 +223,8 @@ export default function Predictions() {
 
     return (
       <svg viewBox="0 0 400 240" className="w-full h-full rounded-2xl shadow-inner border border-white/5" aria-label="Dynamic Carbon Garden visualizer">
+        <title>Dynamic Carbon Garden</title>
+        <desc>{`Ecosystem simulator showing ${simTrees} trees, ${simStreak} flower blooms, and wildlife representing ${simReduction}% carbon reduction.`}</desc>
         <defs>
           <linearGradient id={skyGradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={skyTop} />
@@ -575,27 +586,84 @@ export default function Predictions() {
           </div>
 
           <div className="h-52 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.06} />
-                <XAxis dataKey="name" stroke="#888888" fontSize={9} />
-                <YAxis stroke="#888888" fontSize={9} unit="kg" />
-                <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "none", borderRadius: "8px", color: "#fff", fontSize: 10 }} />
-                <Area type="monotone" dataKey="Emissions" name="Projected Emissions" stroke="#0ea5e9" strokeWidth={2} fillOpacity={1} fill="url(#colorForecast)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <AccessibleChart
+              title="Predictive Emission Forecast"
+              description="12-Month Predictive Emission Forecast Chart showing projected carbon footprint"
+              data={chartData}
+              fields={[
+                { key: "name", label: "Month" },
+                { key: "Emissions", label: "Projected Emissions (kg)" },
+                { key: "LowBound", label: "Confidence Low Bound (kg)" },
+                { key: "HighBound", label: "Confidence High Bound (kg)" }
+              ]}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.06} />
+                  <XAxis dataKey="name" stroke="#888888" fontSize={9} />
+                  <YAxis stroke="#888888" fontSize={9} unit="kg" />
+                  <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "none", borderRadius: "8px", color: "#fff", fontSize: 10 }} />
+                  <Area type="monotone" dataKey="Emissions" name="Projected Emissions" stroke="#0ea5e9" strokeWidth={2} fillOpacity={1} fill="url(#colorForecast)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </AccessibleChart>
           </div>
 
           <div className="p-3.5 bg-gray-50/50 dark:bg-brand-cardDark/50 border border-gray-100 dark:border-brand-borderDark/40 rounded-2xl text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed text-left">
             <span className="font-bold text-gray-800 dark:text-white block mb-1">Explainable AI Insights:</span>
             {forecast.explanation}
           </div>
+
+          {forecast.metrics && (
+            <div className="border-t border-gray-100 dark:border-brand-borderDark/40 pt-4 flex flex-col gap-3 text-left text-xs">
+              <span className="font-bold text-gray-400 uppercase tracking-wider block">ML Model Health & Telemetry</span>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="bg-brand-cardDark/30 p-2 rounded-xl border border-brand-borderDark/25">
+                  <span className="text-gray-400 block">RMSE (Model Error)</span>
+                  <span className="font-mono font-bold text-white block mt-0.5">{forecast.metrics.rmse} kg</span>
+                </div>
+                <div className="bg-brand-cardDark/30 p-2 rounded-xl border border-brand-borderDark/25">
+                  <span className="text-gray-400 block">MAE (Absolute Error)</span>
+                  <span className="font-mono font-bold text-white block mt-0.5">{forecast.metrics.mae} kg</span>
+                </div>
+                <div className="bg-brand-cardDark/30 p-2 rounded-xl border border-brand-borderDark/25">
+                  <span className="text-gray-400 block">Model Version ID</span>
+                  <span className="font-mono font-bold text-white block mt-0.5">{forecast.metrics.model_version}</span>
+                </div>
+                <div className="bg-brand-cardDark/30 p-2 rounded-xl border border-brand-borderDark/25">
+                  <span className="text-gray-400 block">Last Trained At</span>
+                  <span className="font-mono font-bold text-white block mt-0.5">
+                    {new Date(forecast.metrics.trained_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-xl border text-[10px] bg-brand-emerald/5 border-brand-emerald/20">
+                <span className="text-gray-400">Data Drift Status:</span>
+                <span className={`font-black uppercase ${forecast.drift_detected ? "text-red-500" : "text-brand-emerald"}`}>
+                  {forecast.drift_detected ? "Drift Detected" : "Stable"}
+                </span>
+              </div>
+              {forecast.model_coefficients && (
+                <div className="mt-1">
+                  <span className="text-gray-400 block mb-1">Feature Weights (Ridge Coefficients):</span>
+                  <ul className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px] text-gray-300">
+                    {Object.entries(forecast.model_coefficients).map(([coef, val]) => (
+                      <li key={coef} className="flex justify-between border-b border-brand-borderDark/10 pb-0.5">
+                        <span className="text-gray-400">{coef} weight:</span>
+                        <span className={val < 0 ? "text-brand-emerald" : "text-red-400"}>{val > 0 ? `+${val}` : val}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
       </div>
